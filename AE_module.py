@@ -203,7 +203,7 @@ class NN_Experiment():
         Train on the RMSD function alone, potential coefficient is zero
         """
         potential_coefficient = 0
-        while self.epoch < num_rmsd_epochs:
+        for i in range(num_rmsd_epochs):
             #Training
             self.train_batches_on_step(self.train_batches, training_functions.rmsd_step)
             rng = jax.random.PRNGKey(self.epoch)
