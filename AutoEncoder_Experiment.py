@@ -13,7 +13,7 @@ from flax.serialization import from_state_dict, to_state_dict
 
 import mdtraj as md
 
-class NN_Experiment():
+class AutoEncoder_Experiment():
     def __init__(self, json_fn):
         """
         n_latents: int: number of latent dimensions
@@ -78,10 +78,10 @@ class NN_Experiment():
         print(self.train_data.shape, self.test_data.shape)
 
         #Initialize Model
-        assert model_type in ['AE-Dropout', 'AE-Canonical']
+        print(f'### MODEL TYPE = {model_type} ###')
         self.model_type = model_type
 
-        self.model = NN_models.Canonical_AutoEncoder(input_size=input_size, n_latents=self.n_latents, hidden_layers=hidden_layers)
+        self.model = NN_models.Softmax_Sigmoid_AutoEncoder(input_size=input_size, n_latents=self.n_latents, hidden_layers=hidden_layers)
 
         rng_init = jax.random.PRNGKey(self.n_latents)
         rng, key = jax.random.split(rng_init)

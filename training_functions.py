@@ -1,9 +1,10 @@
-import jax
+import jax, os
 import jax.numpy as jnp
 import jax_amber2 as ja
 
 
-fname_prmtop = '/expanse/lustre/projects/iit103/josephdb/Enc4BindingFE/AE_0.1.0/Simulation/ala_deca_peptide.prmtop'
+
+fname_prmtop = os.path.join(os.getcwd(), 'Simulation/ala_deca_peptide.prmtop')
 ener_fun = ja.get_amber_gas_energy_function(fname_prmtop)
 
 @jax.vmap
