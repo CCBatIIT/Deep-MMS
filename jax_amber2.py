@@ -284,10 +284,8 @@ def get_bonds_info (prm_raw_data):
     forceConstConversionFactor = jnp.float32 (418.4)
     # Amber : k(r - r0)^2
     # openmm and this code : 0.5 * k' (r - r0)^2
-    # k' = 2 * k    
-    forceConstant = jnp.float32(2.0)*jnp.array(
-            [float(k0) for k0 in prm_raw_data['BOND_FORCE_CONSTANT']] 
-        )*forceConstConversionFactor
+    # k' = 2 * k
+    forceConstant = jnp.float32(2.0)*jnp.array([float(k0) for k0 in prm_raw_data['BOND_FORCE_CONSTANT']])*forceConstConversionFactor
         
     # A --> nm
     lengthConversionFactor = jnp.float32 (0.1)
@@ -306,9 +304,7 @@ def get_bonds_info (prm_raw_data):
                         int(bondPointers[ii+1])//3) )
         bond_types.append(iType)
 
-    return jnp.array(bonds), \
-           jnp.array(bond_types), \
-           bondEquil, forceConstant
+    return jnp.array(bonds), jnp.array(bond_types), bondEquil, forceConstant
 
 
 

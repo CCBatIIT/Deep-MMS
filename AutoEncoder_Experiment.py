@@ -3,12 +3,12 @@ import jax_amber2 as jaa
 import numpy as np
 import matplotlib.pyplot as plt
 
-import jax, optax, sys, os, json, pickle, NN_models, training_functions
+import jax, optax, orbax, sys, os, json, pickle, NN_models, training_functions, glob
 import jax.numpy as jnp
 import jax_amber2 as jaa
 
 from flax import linen as nn
-from flax.training import train_state
+from flax.training import train_state, orbax_utils
 from flax.serialization import from_state_dict, to_state_dict
 
 import mdtraj as md
@@ -39,6 +39,7 @@ class AutoEncoder_Experiment():
         batch_size = self.json_params["batch_size"]
         learning_rate = self.json_params["learning_rate"]
         model_type = self.json_params["model_type"]
+        dropout_rates = self.json_params["dropout_rates"]
 
         model_dir = save_dir + f'{model_name}/'
 
@@ -51,7 +52,7 @@ class AutoEncoder_Experiment():
             if not os.path.isdir(latent_dir):
                 os.mkdir(latent_dir)
         else:
-            data_dir = model_dir + self.json_params['data_dir']
+            data_dir = self.json_params['data_dir']
 
         if not os.path.isdir(data_dir):
             os.mkdir(data_dir)
@@ -81,13 +82,21 @@ class AutoEncoder_Experiment():
         print(f'### MODEL TYPE = {model_type} ###')
         self.model_type = model_type
 
-        self.model = NN_models.Softmax_Sigmoid_AutoEncoder(input_size=input_size, n_latents=self.n_latents, hidden_layers=hidden_layers)
+        self.model = NN_models.Sigmoid_Dropout_AutoEncoder(input_size=input_size,
+                                                           n_latents=self.n_latents,
+                                                           hidden_layers=hidden_layers,
+                                                           dropout_rates=dropout_rates)
 
         rng_init = jax.random.PRNGKey(self.n_latents)
         rng, key = jax.random.split(rng_init)
         self.state = train_state.TrainState.create(apply_fn=self.model.apply,
-                                                   params=self.model.init(key, coord_set)['params'],
+                                                   params=self.model.init(key, coord_set, rng)['params'],
                                                    tx=optax.adam(learning_rate=learning_rate))
+        #Checkpointer
+        self.orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
+        options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=2, create=True)
+        self.checkpoint_manager = orbax.checkpoint.CheckpointManager(os.path.join(data_dir, 'checkpoint_managed'), self.orbax_checkpointer, options)
+        
         #Initialize data_storage_file
         self.data_dir = data_dir
         self.model_name = model_name
@@ -114,36 +123,67 @@ class AutoEncoder_Experiment():
     def write_model_to_ckpt(self, ckpt_fn=None):
         if ckpt_fn is None:
             ckpt_fn = self.data_dir + f'model_ckpt_{self.epoch:06d}.pkl'
-        with open(ckpt_fn, 'wb') as g:
-            pickle.dump(to_state_dict(self.state), g)
+        
+        save_args = orbax_utils.save_args_from_target(self.state)
+        self.orbax_checkpointer.save(ckpt_fn, self.state, save_args=save_args)
 
-    def load_model_from_ckpt(self, ckpt_fn):
-        with open(ckpt_fn, 'rb') as g:
-            self.state = from_state_dict(self.state, pickle.load(g))
+    def load_model_from_ckpt(self, chkpt_fn, restore_step):
+        self.state = self.orbax_checkpointer.restore(chkpt_fn, item=self.state)
 
+    def restore_latest(self, restore_model=True, restore_numpy=False):
+        #Restore Model
+        if restore_model is True:
+            self.state = self.checkpoint_manager.restore(self.checkpoint_manager.latest_step(), items=self.state)
+        
+        #Retrieve Loss Data
+        npy_fns = glob.glob(os.path.join(self.data_dir, '*.npy'))
+        loss_keys = [key for key in {'RMSD': 0, 'POTENTIAL': 0, 'SUM': 0, 'lambdas' : 0}]
+        for key in ['RMSD', 'POTENTIAL', 'SUM', 'lambdas']:
+            npy_ind = [key in npy_fn for npy_fn in npy_fns].index(True)
+            npy_data = np.load(npy_fns[npy_ind])
+            if key == 'RMSD':
+                self.rmsd_loss = (list(npy_data[0]), list(npy_data[1]))
+                self.epoch = len(self.rmsd_loss[0])
+            elif key == 'POTENTIAL':
+                self.pot_enr_loss = (list(npy_data[0]), list(npy_data[1]))
+            elif key == 'SUM':
+                self.summ_loss = (list(npy_data[0]), list(npy_data[1]))
+            elif key == 'lambdas':
+                self.potential_coefficients = list(npy_data)
+            #print(self.rmsd_loss, self.pot_enr_loss, self.summ_loss, self.potential_coefficients)
+            #assert len(self.rmsd_loss[0]) == len(self.pot_enr_loss[1])
+            #assert len(self.pot_enr_loss[1]) == len(self.summ_loss[0])
+            #assert len(self.lambdas) == len(self.summ_loss[0])
+            
+            
     def write_traj(self, identifier, traj_xyz): #(n conf, n_atoms*3) OR (n conf, n_atoms, 3)
         fname = self.data_dir + f'{identifier}_{self.model_name}{self.n_latents:02d}.dcd'
-
         if traj_xyz.shape[-1] != 3:
             traj_xyz = traj_xyz.reshape(traj_xyz.shape[0], -1, 3)
 
         with md.formats.DCDTrajectoryFile(fname, 'w') as f:
             f.write(traj_xyz*10) #*10 because mdtraj loads data in nm but saves it in angstrom
 
+    def reconstruct(self, data, rng_seed):
+        rng = jax.random.PRNGKey(rng_seed)
+        rng, key = jax.random.split(rng)
+        decoded, latent = self.state.apply_fn({'params':self.state.params}, data, rng)
+        return decoded, latent
+    
     def write_decoded_traj(self, idfn=None):
-        decoded, latent = self.state.apply_fn({'params':self.state.params}, self.test_data)
+        decoded, latent = reconstruct(self.test_data, self.epoch)
         if idfn != None:
-            self.write_traj(idfn, recon_test[0])
+            self.write_traj(idfn, decoded)
         else:
-            self.write_traj(f"recon_test", recon_test[0])
+            self.write_traj(f"recon_test", decoded)
 
     def save_loss_data(self):
         #LOSSES
         loss_names = ['RMSD', 'POTENTIAL', 'SUMM']
         for arr in (self.rmsd_loss, self.pot_enr_loss, self.summ_loss):
-            np.save(self.data_dir + f'{self.model_name}{self.n_latents:02d}_{loss_names.pop(0)}.npy', np.array(arr))
+            np.save(self.data_dir + f'{self.model_name}{self.n_latents:02d}_{loss_names.pop(0)}_{self.epoch:06d}.npy', np.array(arr))
         #LAMBDAS
-        np.save(self.data_dir + f'{self.model_name}{self.n_latents:02d}_lambdas.npy', np.array(self.potential_coefficients))
+        np.save(self.data_dir + f'{self.model_name}{self.n_latents:02d}_lambdas_{self.epoch:06d}.npy', np.array(self.potential_coefficients))
 
     def eval_batches(self, batch_set, eval_function, **kwargs):
         vals = []
@@ -152,7 +192,7 @@ class AutoEncoder_Experiment():
         for i in range(batch_set.num_batches):
             #Get Batch
             batch = next(f)
-            recon = self.state.apply_fn({'params':self.state.params}, batch)[0]
+            recon = self.reconstruct(batch, self.epoch)[0]
             #Eval Batch
             vals.append(eval_function(batch, recon, **kwargs))
 
@@ -177,11 +217,17 @@ class AutoEncoder_Experiment():
 
     def train_batches_on_step(self, batch_set, step_function, **kwargs):
         f = iter(batch_set)
+        #Before EVERY EPOCH
+
+        #Ddur batchs EVERY EPOCH
         for i in range(batch_set.num_batches):
             #Get Batch
             batch = next(f)
             #Train Batch
             self.state = step_function(self.state, batch, **kwargs)
+        #After EVERY EPOCH
+        save_args = orbax_utils.save_args_from_target(self.state)
+        self.checkpoint_manager.save(self.epoch, self.state, save_kwargs={'save_args': save_args})
 
     def train_nepochs_on_rmsd(self, num_rmsd_epochs):
         """
@@ -190,7 +236,9 @@ class AutoEncoder_Experiment():
         potential_coefficient = 0
         while self.epoch < num_rmsd_epochs:
             #Training
-            self.train_batches_on_step(self.train_batches, training_functions.rmsd_step)
+            rng = jax.random.PRNGKey(self.epoch)
+            rng, key = jax.random.split(rng)
+            self.train_batches_on_step(self.train_batches, training_functions.rmsd_rng_step, z_rng=rng)
             #After all batches seen this epoch
             rmsd_train_loss, rmsd_test_loss, pot_enr_train_loss, pot_enr_test_loss, summ_train_loss, summ_test_loss = self.eval_losses(potential_coefficient=potential_coefficient)
             #Record Data
