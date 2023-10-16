@@ -1,0 +1,428 @@
+import jax_amber2 as jaa
+
+import numpy as np
+import numpy.random as npr
+import matplotlib.pyplot as plt
+
+import jax, optax, sys, os, json, pickle, NN_models, training_functions
+import jax.numpy as jnp
+import jax_amber2 as jaa
+
+from flax import linen as nn
+from flax.training import train_state
+from flax.serialization import from_state_dict, to_state_dict
+
+import mdtraj as md
+
+class NN_Experiment():
+    def __init__(self, json_fn):
+        """
+        n_latents: int: number of latent dimensions
+        coord_set: jnp.array(): data from which both test and train set will be derived
+        test_slice: int in (0,1,2,3,4): which 80/20 slice of coord_set to take for test and train
+        data_dir: string: directory (with trailing slash) in which to store all output data, images, etc.
+        batch_size: int: default 400; number of frames in a training batch
+        learning_rate: float: default 1e-4; optax adam learning rate
+        dropout_rates: list of floats: encoder and decoder dropout rates forward for encoder and reverse for decoder
+        """
+        #Get the information from the json file
+        with open(json_fn, 'r') as g:
+            self.json_params = json.load(g)
+
+        #Files
+        fname_dcd = self.json_params["fname_dcd"]
+        fname_prmtop = self.json_params["fname_prmtop"]
+        self.n_latents = self.json_params["latent_dim"] #number of latents
+        test_slice = self.json_params["test_slice"] #int zero to four inclusive for 20/80 split of test and train
+        model_name = self.json_params["model_name"] #string for the model name
+        save_dir = self.json_params["save_dir"] #with trailing slash:
+        data_start, data_end = self.json_params["data_slice_start"], self.json_params["data_slice_end"] #Slice of data
+        batch_size = self.json_params["batch_size"]
+        learning_rate = self.json_params["learning_rate"]
+        dropout_rates = self.json_params["dropout_rates"]
+        model_type = self.json_params["model_type"]
+
+        model_dir = save_dir + f'{model_name}/'
+
+        if not os.path.isdir(model_dir):
+            os.mkdir(model_dir)
+
+        if self.json_params["data_dir"] == 'None':
+            latent_dir = model_dir + f'{self.n_latents:02d}_latents/'
+            data_dir = latent_dir + f'rpt_{test_slice}/'
+            if not os.path.isdir(latent_dir):
+                os.mkdir(latent_dir)
+        else:
+            data_dir = model_dir + self.json_params['data_dir']
+
+        if not os.path.isdir(data_dir):
+            os.mkdir(data_dir)
+
+        if data_end == 'None':
+            data_end = None
+
+        c = md.load(fname_dcd, top=fname_prmtop)
+        c = c.superpose(c) # FEED IN ALIGNED DATA
+        coord_set = jnp.array(c.xyz.reshape(c.xyz.shape[0], -1))[data_start:data_end]
+
+        #Get information about input data
+        num_samples, input_size = coord_set.shape
+
+        #make hidden layers
+        hidden_layers = [input_size]*3
+
+        #make test and train sets
+        test_indices = np.array(range(test_slice, num_samples, 5)) #every fifth frame
+        train_indices = np.array([element for element in range(num_samples) if element not in test_indices])
+        self.test_data = coord_set[test_indices]
+        self.train_data = coord_set[train_indices]
+
+        print(self.train_data.shape, self.test_data.shape)
+
+        #Initialize Model
+        assert model_type in ['AE-Dropout', 'AE-Canonical']
+        self.model_type = model_type
+
+        if model_type == 'AE-Dropout':
+            self.model = Dropout_AutoEncoder(input_size=input_size, latents=self.n_latents, hidden_layers=hidden_layers, dropout_rates=dropout_rates)
+        elif model_type == 'AE-Canonical':
+            self.model = Canonical_AutoEncoder(input_size=input_size, latents=self.n_latents, hidden_layers=hidden_layers)
+
+        rng_init = jax.random.PRNGKey(self.n_latents)
+        rng, key = jax.random.split(rng_init)
+        self.state = train_state.TrainState.create(apply_fn=self.model.apply,
+                                                   params=self.model.init(key, coord_set, rng_init)['params'],
+                                                   tx=optax.adam(learning_rate=learning_rate))
+        #Initialize data_storage_file
+        self.data_dir = data_dir
+        self.model_name = model_name
+        self.data_file = open(self.data_dir + f'model_{self.model_name}_{self.n_latents:02d}.out', 'w')
+        print(self.model)
+
+        self.epoch = 0
+        self.rmsd_loss = ([], [])
+        self.pot_enr_loss = ([], [])
+        self.summ_loss = ([], [])
+        self.potential_coefficients = []
+
+        num_train = self.train_data.shape[0]
+        num_complete_batches, leftover = divmod(num_train, batch_size)
+        self.num_train_batches = num_complete_batches + bool(leftover)
+        self.train_batches = Data_stream(self.n_latents, num_train, self.num_train_batches, batch_size, self.train_data)
+
+        num_test = self.test_data.shape[0]
+        num_complete_batches, leftover = divmod(num_test, batch_size)
+        self.num_test_batches = num_complete_batches + bool(leftover)
+        self.test_batches = Data_stream(self.n_latents, num_test, self.num_test_batches, batch_size, self.test_data)
+        print("INITIALIZATION COMPLETE")
+
+    def write_model_to_ckpt(self, ckpt_fn=None):
+        if ckpt_fn is None:
+            ckpt_fn = self.data_dir + f'model_ckpt_{self.epoch:06d}.pkl'
+        with open(ckpt_fn, 'wb') as g:
+            pickle.dump(to_state_dict(self.state), g)
+
+    def load_model_from_ckpt(self, ckpt_fn):
+        with open(ckpt_fn, 'rb') as g:
+            self.state = from_state_dict(self.state, pickle.load(g))
+
+    def write_traj(self, identifier, traj_xyz): #(n conf, n_atoms*3) OR (n conf, n_atoms, 3)
+        fname = self.data_dir + f'{identifier}_{self.model_name}{self.n_latents:02d}.dcd'
+
+        if traj_xyz.shape[-1] != 3:
+            traj_xyz = traj_xyz.reshape(traj_xyz.shape[0], -1, 3)
+
+        with md.formats.DCDTrajectoryFile(fname, 'w') as f:
+            f.write(traj_xyz*10) #*10 because mdtraj loads data in nm but saves it in angstrom
+
+    def write_decoded_traj(self, idfn=None):
+        rng = jax.random.PRNGKey(self.epoch)
+        rng, key = jax.random.split(rng)
+        recon_test = self.state.apply_fn({'params':self.state.params}, self.test_data, rng)
+        if idfn != None:
+            self.write_traj(idfn, recon_test[0])
+        else:
+            self.write_traj(f"recon_test", recon_test[0])
+
+    def save_loss_data(self):
+        #LOSSES
+        loss_names = ['RMSD', 'POTENTIAL', 'SUMM']
+        for arr in (self.rmsd_loss, self.pot_enr_loss, self.summ_loss):
+            np.save(self.data_dir + f'{self.model_name}{self.n_latents:02d}_{loss_names.pop(0)}.npy', np.array(arr))
+        #LAMBDAS
+        np.save(self.data_dir + f'{self.model_name}{self.n_latents:02d}_lambdas.npy', np.array(self.potential_coefficients))
+
+    def eval_batches(self, batch_set, eval_function, **kwargs):
+        vals = []
+        f = iter(batch_set)
+
+        for i in range(batch_set.num_batches):
+            #Get Batch
+            batch = next(f)
+            rng = jax.random.PRNGKey(self.epoch)
+            rng, key = jax.random.split(rng)
+            recon = self.state.apply_fn({'params':self.state.params}, batch, rng)[0]
+            #Eval Batch
+            vals.append(eval_function(batch, recon, potential_coefficient=potential_coefficient))
+
+        vals = jnp.array(vals)
+        return vals.flatten()
+
+    def eval_losses(self, **kwargs):
+        #After all batches seen this epoch
+        #recon_train = self.state.apply_fn({'params':self.state.params}, self.train_data, rng)
+        #recon_test = self.state.apply_fn({'params':self.state.params}, self.test_data, rng)
+
+        self.rmsd_loss[0].append(self.eval_batches(self.train_batches, atom_rmsd).mean())
+        self.rmsd_loss[1].append(self.eval_batches(self.test_batches, atom_rmsd).mean())
+
+        self.pot_enr_loss[0].append(self.eval_batches(self.train_batches, scaled_pot_enr_diff).mean())
+        self.pot_enr_loss[1].append(self.eval_batches(self.test_batches, scaled_pot_enr_diff).mean())
+
+        self.summ_loss[0].append(self.eval_batches(self.train_batches, summation_loss, potential_coefficient=potential_coefficient).mean())
+        self.summ_loss[1].append(self.eval_batches(self.test_batches, summation_loss, potential_coefficient=potential_coefficient).mean())
+
+        most_recent_results = (self.rmsd_loss[0][-1], self.rmsd_loss[1][-1],
+                               self.pot_enr_loss[0][-1], self.pot_enr_loss[1][-1],
+                               self.summ_loss[0][-1], self.summ_loss[1][-1])
+
+        return most_recent_results
+
+    def train_batches_on_step(self, batch_set, step_function, **kwargs):
+        f = iter(batch_set)
+        for i in range(batch_set.num_batches):
+            #Get Batch
+            batch = next(f)
+            #Train Batch
+            rng = jax.random.PRNGKey(self.epoch)
+            rng, key = jax.random.split(rng)
+            self.state = step_function(self.state, batch, z_rng=rng, potential_coefficient=potential_coefficient)
+
+    def train_nepochs_on_rmsd(self, num_rmsd_epochs):
+        """
+        Train on the RMSD function alone, potential coefficient is zero
+        """
+        potential_coefficient = 0
+        for i in range(num_rmsd_epochs):
+            #Training
+            self.train_batches_on_step(self.train_batches, training_functions.rmsd_step)
+            rng = jax.random.PRNGKey(self.epoch)
+            rng, key = jax.random.split(rng)
+            #After all batches seen this epoch
+            rmsd_train_loss, rmsd_test_loss, pot_enr_train_loss, pot_enr_test_loss, summ_train_loss, summ_test_loss = self.eval_losses(potential_coefficient=potential_coefficient)
+
+            print('epoch', self.epoch, 'atom_rmsd_nm', '%.4E'%rmsd_train_loss, '%.4E'%rmsd_test_loss,
+                  'dPotEnr', '%.4E'%pot_enr_train_loss, '%.4E'%pot_enr_test_loss,
+                  'Summation', '%.4E'%summ_train_loss, '%.4E'%summ_test_loss, 'L=%.4E'%potential_coefficient)
+            
+            self.potential_coefficients.append(potential_coefficient)
+            self.epoch += 1
+
+    def train_rmsd_threshold(self, nm_cutoff, num_move_ave, cutoff_epoch):
+        """
+        Train on the RMSD until a nm_cutoff is reached of the last num_mov_ave epochs
+        """
+        potential_coefficient = 0
+        while np.mean(self.rmsd_loss[-1][-num_move_ave:]) > nm_cutoff and self.epoch < cutoff_epoch:
+            #Training
+            self.train_batches_on_step(self.train_batches, training_functions.rmsd_step)
+            rng = jax.random.PRNGKey(self.epoch)
+            rng, key = jax.random.split(rng)
+            # After all batches seen this epoch evaluate losses
+            rmsd_train_loss, rmsd_test_loss, pot_enr_train_loss, pot_enr_test_loss, summ_train_loss, summ_test_loss = self.eval_losses(potential_coefficient=potential_coefficient)
+            # Record Data
+            print('epoch', self.epoch, 'atom_rmsd_nm', '%.4E'%rmsd_train_loss, '%.4E'%rmsd_test_loss,
+                  'dPotEnr', '%.4E'%pot_enr_train_loss, '%.4E'%pot_enr_test_loss,
+                  'Summation', '%.4E'%summ_train_loss, '%.4E'%summ_test_loss, 'L=%.4E'%potential_coefficient)
+            self.potential_coefficients.append(potential_coefficient)
+            if self.epoch % 100 == 0:# Once every 100 epoch, dump all loss data to a file
+                self.save_loss_data()
+            self.epoch += 1
+        return self.epoch
+
+    def train_potential(self, potential_threshold, num_mov_ave, cutoff_epoch):
+        potential_not_below_threshold = True
+        potential_is_decreasing = True
+        potential_coefficient = 1
+
+        while (potential_not_below_threshold or potential_is_decreasing) and self.epoch < cutoff_epoch:
+            # Training
+            self.train_batches_on_step(self.train_batches, training_functions.potential_step)
+            rng = jax.random.PRNGKey(self.epoch)
+            rng, key = jax.random.split(rng)
+            # After all batches seen this epoch
+            (rmsd_train_loss, rmsd_test_loss, pot_enr_train_loss, pot_enr_test_loss, summ_train_loss,
+             summ_test_loss) = self.eval_losses(rng, potential_coefficient)
+
+            print('epoch', self.epoch, 'atom_rmsd_nm', '%.4E' % rmsd_train_loss, '%.4E' % rmsd_test_loss,
+                  'dPotEnr', '%.4E' % pot_enr_train_loss, '%.4E' % pot_enr_test_loss,
+                  'Summation', '%.4E' % summ_train_loss, '%.4E' % summ_test_loss, 'L=%.4E' % potential_coefficient)
+
+            self.potential_coefficients.append(potential_coefficient)
+            if self.epoch % 50 == 0:
+                #Check if NAN and abort if so
+                recent_loss = jnp.array([pot_enr_train_loss, pot_enr_test_loss])
+                if True in jnp.isnan(recent_loss):
+                    raise NotImplementedError('Potential is not meant to be NAN')
+            if self.epoch % 100 == 0:  # Periodically save loss
+                self.save_loss_data()
+            if self.epoch % 500 == 0:  # Periodically save a traj
+                self.write_decoded_traj()
+            self.epoch += 1
+            # Should break loop?
+            doub_mov_ave = 2 * num_mov_ave
+            potential_not_below_threshold = (np.mean(self.pot_enr_loss[-1][-num_mov_ave:]) > potential_threshold or
+                                             np.mean(self.pot_enr_loss[0][-num_mov_ave:]) > potential_threshold)  # Test and train should be below the threshold
+            potential_is_decreasing = np.mean(self.pot_enr_loss[-1][-doub_mov_ave:-num_mov_ave]) > np.mean(
+                self.pot_enr_loss[-1][-num_mov_ave:])  # Test should continue decreasing
+        return self.epoch
+
+    def train_scaling_potential(self, potential_coefficient=0, cutoff_epoch=25000):
+        """Scale the potential in by frequently changing the coefficient to make potential equal to rmsd"""
+
+        # Every ten epochs choose lambda as min(1, max(lambda[-1], RMSD/NSD))
+        while potential_coefficient != 1 and self.epoch < cutoff_epoch:
+            # Sometime check to see if lambda can be larger
+            if self.epoch % 10 == 0:
+                potential_coefficient = np.min(
+                    (1, np.max((potential_coefficient, (self.rmsd_loss[0][-1] / self.pot_enr_loss[0][-1])))))
+            # Training
+            self.train_batches_on_step(self.train_batches, summation_step, potential_coefficient)
+            # After all batches seen this epoch
+            rng = jax.random.PRNGKey(self.epoch)
+            rng, key = jax.random.split(rng)
+            (rmsd_train_loss, rmsd_test_loss, pot_enr_train_loss, pot_enr_test_loss, summ_train_loss,
+             summ_test_loss) = self.eval_losses(rng, potential_coefficient)
+
+            print('epoch', self.epoch, 'atom_rmsd_nm', '%.4E' % rmsd_train_loss, '%.4E' % rmsd_test_loss,
+                  'dPotEnr', '%.4E' % pot_enr_train_loss, '%.4E' % pot_enr_test_loss,
+                  'Summation', '%.4E' % summ_train_loss, '%.4E' % summ_test_loss, 'L=%.4E' % potential_coefficient)
+
+            self.potential_coefficients.append(potential_coefficient)
+
+            if self.epoch % 50 == 0:
+                #Check if NAN and abort if so
+                recent_loss = jnp.array([pot_enr_train_loss, pot_enr_test_loss])
+                if True in jnp.isnan(recent_loss):
+                    raise NotImplementedError('Potential is not meant to be NAN')
+            if self.epoch % 100 == 0:
+                self.save_loss_data()
+            self.epoch += 1
+        return self.epoch
+
+    def train_summation(self, potential_coefficient=1, potential_threshold=1e-3, num_mov_ave=50, cutoff_epoch=25000):
+        potential_not_below_threshold = True
+        potential_is_decreasing = True
+
+        while (potential_not_below_threshold or potential_is_decreasing) and self.epoch < cutoff_epoch:
+            # Training
+            self.train_batches_on_step(self.train_batches, summation_step, potential_coefficient)
+
+            rng = jax.random.PRNGKey(self.epoch)
+            rng, key = jax.random.split(rng)
+            # After all batches seen this epoch
+            (rmsd_train_loss, rmsd_test_loss, pot_enr_train_loss, pot_enr_test_loss, summ_train_loss,
+             summ_test_loss) = self.eval_losses(rng, potential_coefficient)
+
+            print('epoch', self.epoch, 'atom_rmsd_nm', '%.4E' % rmsd_train_loss, '%.4E' % rmsd_test_loss,
+                  'dPotEnr', '%.4E' % pot_enr_train_loss, '%.4E' % pot_enr_test_loss,
+                  'Summation', '%.4E' % summ_train_loss, '%.4E' % summ_test_loss, 'L=%.4E' % potential_coefficient)
+
+            self.potential_coefficients.append(potential_coefficient)
+            if self.epoch % 50 == 0:
+                #Check if NAN and abort if so
+                recent_loss = jnp.array([pot_enr_train_loss, pot_enr_test_loss])
+                if True in jnp.isnan(recent_loss):
+                    raise NotImplementedError('Potential is not meant to be NAN')
+            if self.epoch % 100 == 0:  # Periodically save loss
+                self.save_loss_data()
+            if self.epoch % 500 == 0:  # Periodically save a traj
+                self.write_decoded_traj()
+            self.epoch += 1
+            # Should break loop?
+            doub_mov_ave = 2*num_mov_ave
+            potential_not_below_threshold = (np.mean(self.pot_enr_loss[-1][-num_mov_ave:]) > potential_threshold or
+                                                np.mean(self.pot_enr_loss[0][-num_mov_ave:]) > potential_threshold)  # Test and train should be below the threshold
+            potential_is_decreasing = np.mean(self.pot_enr_loss[-1][-doub_mov_ave:-num_mov_ave]) > np.mean(self.pot_enr_loss[-1][-num_mov_ave:])  # Test should continue decreasing
+        return self.epoch
+
+    def train_model(self, nm_cutoff=0.1, max_rmsd_epoch=500, potential_threshold=1e-3, cutoff_epoch=25000):
+        """ CURRENT MAIN USAGE CASE """
+        # RMSD BLOCK 1
+        # Train on RMSD until average of last 100 epochs <1 angstrom
+        # Get first 100 vals
+        print('START RMSD')
+        self.train_nepochs_on_rmsd(100)
+        self.save_loss_data()
+        self.write_model_to_ckpt()
+
+        # RMSD BLOCK 2
+        # Train until last 100 vals average less than predefined cutoff, always make sure we never train longer than cutoff_epoch
+        begin_scaling_epoch = self.train_rmsd_threshold(nm_cutoff=nm_cutoff, num_move_ave=100, cutoff_epoch=max_rmsd_epoch)
+        self.write_model_to_ckpt()
+
+        # SCALE IN POTENTIAL BLOCK
+        print('START SCALING POTENTIAL')
+        end_scaling_epoch = self.train_scaling_potential(cutoff_epoch=cutoff_epoch)
+        print('END SCALING POTENTIAL')
+        self.save_loss_data()
+        self.write_model_to_ckpt()
+
+        #TRAIN ON POTENTIAL BLOCK (MAINTAIN RMSD IF THIS IS AE, DROP THAT TERM IF IT IS VAE
+        if self.model_type == 'VAE':
+            self.train_potential(potential_threshold=potential_threshold, cutoff_epoch=cutoff_epoch)
+        elif self.model_type == 'AE':
+            self.train_summation(potential_coefficient=self.potential_coefficients[-1], potential_threshold=potential_threshold, cutoff_epoch=cutoff_epoch)
+        print('END TRAINING')
+        self.save_loss_data()
+        self.write_model_to_ckpt()
+
+        return begin_scaling_epoch, end_scaling_epoch
+
+
+    def graph_losses(self, begin_scaling_epoch=None, end_scaling_epoch=None, yscale='log'):
+        """
+        Produce graphs of the three loss functions
+        scaling_epochs: tuple of two ints: epochs at which scaling started and finished
+        """
+
+        def plot_and_save_data(data_sets, title, ylabel):
+            plt.clf()
+            for data_set in data_sets:
+                _ = plt.plot(np.array(range(self.epoch)), data_set)
+            if begin_scaling_epoch != None:
+                plt.axvline(begin_scaling_epoch, color='r', linestyle='dashed')
+            if end_scaling_epoch != None:
+                plt.axvline(end_scaling_epoch, color='r', linestyle='dashed')
+            plt.title(title)
+            plt.ylabel(ylabel)
+            plt.yscale(yscale)
+            plt.xlabel('epoch')
+            plt.legend(['train','test'])
+            plt.savefig(self.data_dir + f'{ylabel}_{self.model_name}{self.n_latents}.png')
+            plt.show()
+
+        #RMSD
+        plot_and_save_data(self.rmsd_loss, f'RMSD - {self.n_latents} latents', 'RMSD(nm)')
+
+        #POTENTIAL
+        plot_and_save_data(self.pot_enr_loss, f'Norm Square Deviation of Potential - {self.n_latents} latents', 'NSD Potential')
+
+        #Summation
+        plot_and_save_data(self.summ_loss, f'Summation - {self.n_latents} latents', 'SumLoss')
+
+
+if __name__ == '__main__':
+    #JSON is arg
+    json_fn = sys.argv[1]
+
+    #Init Experiment
+    experiment = NN_Experiment(json_fn)
+
+    #Save Testing Data
+    experiment.write_traj("test_data", experiment.test_data)
+
+    # Automatic training
+    begin_scaling_epoch, end_scaling_epoch = experiment.train_model(nm_cutoff=0.1, potential_threshold=experiment.json_params["potential_threshold"], cutoff_epoch=experiment.json_params["max_epoch"])
+    experiment.save_loss_data()
+    experiment.graph_losses(begin_scaling_epoch=begin_scaling_epoch, end_scaling_epoch=end_scaling_epoch)
