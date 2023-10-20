@@ -1,9 +1,9 @@
-import jax
+import jax, os
 import jax.numpy as jnp
 import jax_amber2 as ja
 
 
-fname_prmtop = '/media/volume/sdb/Timooo/Auto_Encoding_FE/Simulation/ala_deca_peptide.prmtop'
+fname_prmtop = 
 ener_fun = ja.get_amber_gas_energy_function(fname_prmtop)
 
 @jax.vmap

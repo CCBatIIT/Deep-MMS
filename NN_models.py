@@ -129,6 +129,8 @@ class Softmax_Sigmoid_AutoEncoder(nn.Module):
         return self.decoder(z)
 
     
+#THESE CLASSES ARE DEPRECATED IN THE MAIN BRANCH
+print('Classes using name "Canonical" are deprecated in main')
 #previous version of AE ("Canonical" uses softmax)
 class Canonical_Encoder(nn.Module):
     d_hidden: list
@@ -137,7 +139,7 @@ class Canonical_Encoder(nn.Module):
     @nn.compact
     def __call__(self, x):
         for i, d_hidden in enumerate(self.d_hidden):
-            x = nn.softmax(nn.Dense(d_hidden)(x))
+            x = nn.sigmoid(nn.Dense(d_hidden)(x))
         x = nn.Dense(self.n_latents)(x)
         return x 
     
@@ -148,7 +150,7 @@ class Canonical_Decoder(nn.Module):
     @nn.compact
     def __call__(self, x):
         for i, d_hidden in reversed(list(enumerate(self.d_hidden))):
-            x = nn.softmax(nn.Dense(d_hidden)(x))
+            x = nn.sigmoid(nn.Dense(d_hidden)(x))
         x = nn.Dense(self.out_dim)(x)
         return x
     
@@ -166,4 +168,4 @@ class Canonical_AutoEncoder(nn.Module):
         return self.decoder(z_latent), z_latent
 
     def decode(self, z):
-        return self.decoder(z)
+        return self.decoder(z):
