@@ -1,3 +1,5 @@
+# ACS_DEPRECATED IS A STALE BRANCH, CONTAINING THE CODE USED TO GENERATE FIGURES AND GMM FOR JOSEPHS ACS SAN FRAN PRESENTATION
+
 # Deep-MMS
 Repository for construction of JAX/FLAX neural networks which are applied to the mapping of molecular mechanics ensembles.
 
