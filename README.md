@@ -36,9 +36,20 @@ The main work is done in `perturbation_model` notebooks.
     Step-2 visualize the difference after perturbation.
     Step-3 Write a latents by latents histogram-scatterplot analysis
     
-*** 10/23 Meeting update *** 
-    
-  
+*** 10/24 Meeting update *** 
+  Running modelL on practical environment
+  Finallize python the visualization functions 
+
+    On modelL
+      Step-0 Configure the computation environment to run it. (Probally best to have Joseph's help)
+      
+    On histogram-on-scatterplots
+      Step-0 Get rid of empty boxes
+      Step-1 Inverse the scatter box from top right - to -> bottom left
+      Step-2 Make it bigger or at least readable.
+
+    On the whole notebook
+      Step-0 Make it a universally importable python file. 
 
 =======
 
