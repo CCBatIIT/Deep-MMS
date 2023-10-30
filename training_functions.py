@@ -4,7 +4,7 @@ import jax_amber2 as ja
 
 
 
-fname_prmtop = os.path.join(os.getcwd(), 'Simulation/ala_deca_peptide.prmtop')
+fname_prmtop = os.path.join(os.getcwd(), 'Simulation/1crn_H.prmtop')
 ener_fun = ja.get_amber_gas_energy_function(fname_prmtop)
 
 @jax.vmap
