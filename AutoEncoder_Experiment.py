@@ -218,13 +218,14 @@ class AutoEncoder_Experiment():
     def train_batches_on_step(self, batch_set, step_function, **kwargs):
         f = iter(batch_set)
         #Before EVERY EPOCH
-
+        rng = jax.random.PRNGKey(self.epoch)
+        rng, key = jax.random.split(rng)
         #Ddur batchs EVERY EPOCH
         for i in range(batch_set.num_batches):
             #Get Batch
             batch = next(f)
             #Train Batch
-            self.state = step_function(self.state, batch, **kwargs)
+            self.state = step_function(self.state, batch, z_rng=rng, **kwargs)
         #After EVERY EPOCH
         save_args = orbax_utils.save_args_from_target(self.state)
         self.checkpoint_manager.save(self.epoch, self.state, save_kwargs={'save_args': save_args})
@@ -236,9 +237,7 @@ class AutoEncoder_Experiment():
         potential_coefficient = 0
         while self.epoch < num_rmsd_epochs:
             #Training
-            rng = jax.random.PRNGKey(self.epoch)
-            rng, key = jax.random.split(rng)
-            self.train_batches_on_step(self.train_batches, training_functions.rmsd_rng_step, z_rng=rng)
+            self.train_batches_on_step(self.train_batches, training_functions.rmsd_rng_step)
             #After all batches seen this epoch
             rmsd_train_loss, rmsd_test_loss, pot_enr_train_loss, pot_enr_test_loss, summ_train_loss, summ_test_loss = self.eval_losses(potential_coefficient=potential_coefficient)
             #Record Data
@@ -256,7 +255,7 @@ class AutoEncoder_Experiment():
         potential_coefficient = 0
         while np.mean(self.rmsd_loss[-1][-num_move_ave:]) > nm_cutoff and self.epoch < cutoff_epoch:
             #Training
-            self.train_batches_on_step(self.train_batches, training_functions.rmsd_step)
+            self.train_batches_on_step(self.train_batches, training_functions.rmsd_rng_step)
             # After all batches seen this epoch evaluate losses
             rmsd_train_loss, rmsd_test_loss, pot_enr_train_loss, pot_enr_test_loss, summ_train_loss, summ_test_loss = self.eval_losses(potential_coefficient=potential_coefficient)
             # Record Data
@@ -276,7 +275,7 @@ class AutoEncoder_Experiment():
 
         while (potential_not_below_threshold or potential_is_decreasing) and self.epoch < cutoff_epoch:
             # Training
-            self.train_batches_on_step(self.train_batches, training_functions.potential_step)
+            self.train_batches_on_step(self.train_batches, training_functions.potential_rng_step)
             # After all batches seen this epoch
             (rmsd_train_loss, rmsd_test_loss, pot_enr_train_loss, pot_enr_test_loss, summ_train_loss, summ_test_loss) = self.eval_losses(potential_coefficient=potential_coefficient)
 
@@ -303,7 +302,7 @@ class AutoEncoder_Experiment():
                 self.pot_enr_loss[-1][-num_mov_ave:])  # Test should continue decreasing
         return self.epoch
 
-    def train_scaling_potential(self, cutoff_epoch):
+    def train_scaling_potential(self, cutoff_epoch, freq=10):
         """
         Scale the potential in by frequently changing the coefficient to make potential equal to rmsd
         """
@@ -311,10 +310,12 @@ class AutoEncoder_Experiment():
         # Every ten epochs choose lambda as min(1, max(lambda[-1], RMSD/NSD))
         while potential_coefficient != 1 and self.epoch < cutoff_epoch:
             # Sometime check to see if lambda can be larger
-            if self.epoch % 10 == 0:
+            if self.epoch % freq == 0:
                 potential_coefficient = np.min((1, np.max((potential_coefficient, (self.rmsd_loss[0][-1] / self.pot_enr_loss[0][-1])))))
+            
+            
             # Training
-            self.train_batches_on_step(self.train_batches, training_functions.summation_step, potential_coefficient=potential_coefficient)
+            self.train_batches_on_step(self.train_batches, training_functions.summation_rng_step, potential_coefficient=potential_coefficient)
             # After all batches seen this epoch
             (rmsd_train_loss, rmsd_test_loss, pot_enr_train_loss, pot_enr_test_loss, summ_train_loss, summ_test_loss) = self.eval_losses(potential_coefficient=potential_coefficient)
 
@@ -341,7 +342,7 @@ class AutoEncoder_Experiment():
 
         while (potential_not_below_threshold or potential_is_decreasing) and self.epoch < cutoff_epoch:
             # Training
-            self.train_batches_on_step(self.train_batches, training_functions.summation_step, potential_coefficient=potential_coefficient)
+            self.train_batches_on_step(self.train_batches, training_functions.summation_rng_step, potential_coefficient=potential_coefficient)
             # After all batches seen this epoch
             (rmsd_train_loss, rmsd_test_loss, pot_enr_train_loss, pot_enr_test_loss, summ_train_loss, summ_test_loss) = self.eval_losses(potential_coefficient=potential_coefficient)
 
