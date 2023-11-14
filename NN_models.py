@@ -30,7 +30,7 @@ class Sigmoid_Encoder(nn.Module):
             x = nn.sigmoid(nn.Dense(d_hidden)(x))
         x = nn.Dense(self.n_latents)(x)
         return x
-    
+
 class Sigmoid_Dropout_Encoder(nn.Module):
     d_hidden: list
     latents: int
@@ -127,45 +127,3 @@ class Softmax_Sigmoid_AutoEncoder(nn.Module):
 
     def decode(self, z):
         return self.decoder(z)
-
-    
-#THESE CLASSES ARE DEPRECATED IN THE MAIN BRANCH
-print('Classes using name "Canonical" are deprecated in main')
-#previous version of AE ("Canonical" uses softmax)
-class Canonical_Encoder(nn.Module):
-    d_hidden: list
-    n_latents: int
-    
-    @nn.compact
-    def __call__(self, x):
-        for i, d_hidden in enumerate(self.d_hidden):
-            x = nn.sigmoid(nn.Dense(d_hidden)(x))
-        x = nn.Dense(self.n_latents)(x)
-        return x 
-    
-class Canonical_Decoder(nn.Module):
-    d_hidden: list
-    out_dim: int
-
-    @nn.compact
-    def __call__(self, x):
-        for i, d_hidden in reversed(list(enumerate(self.d_hidden))):
-            x = nn.sigmoid(nn.Dense(d_hidden)(x))
-        x = nn.Dense(self.out_dim)(x)
-        return x
-    
-class Canonical_AutoEncoder(nn.Module):
-    input_size: int
-    hidden_layers: tuple
-    n_latents: int
-
-    def setup(self):
-        self.encoder = Canonical_Encoder(list(self.hidden_layers), self.n_latents)
-        self.decoder = Canonical_Decoder(list(self.hidden_layers), self.input_size)
-
-    def __call__(self, x):
-        z_latent = self.encoder(x)
-        return self.decoder(z_latent), z_latent
-
-    def decode(self, z):
-        return self.decoder(z):
