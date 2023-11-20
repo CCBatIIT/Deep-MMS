@@ -1,5 +1,3 @@
-import jax_amber2 as jaa
-
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -105,9 +103,11 @@ class AutoEncoder_Experiment():
 
         self.epoch = 0
         self.rmsd_loss = ([], [])
+        self.tors_loss = ([], [])
         self.pot_enr_loss = ([], [])
         self.summ_loss = ([], [])
         self.potential_coefficients = []
+        self.torsional_coefficients = []
 
         num_train = self.train_data.shape[0]
         num_complete_batches, leftover = divmod(num_train, batch_size)
@@ -130,30 +130,30 @@ class AutoEncoder_Experiment():
     def load_model_from_ckpt(self, chkpt_fn, restore_step):
         self.state = self.orbax_checkpointer.restore(chkpt_fn, item=self.state)
 
-    def restore_latest(self, restore_model=True, restore_numpy=False):
-        #Restore Model
-        if restore_model is True:
-            self.state = self.checkpoint_manager.restore(self.checkpoint_manager.latest_step(), items=self.state)
+    # def restore_latest(self, restore_model=True, restore_numpy=False):
+    #     #Restore Model
+    #     if restore_model is True:
+    #         self.state = self.checkpoint_manager.restore(self.checkpoint_manager.latest_step(), items=self.state)
         
-        #Retrieve Loss Data
-        npy_fns = glob.glob(os.path.join(self.data_dir, '*.npy'))
-        loss_keys = [key for key in {'RMSD': 0, 'POTENTIAL': 0, 'SUM': 0, 'lambdas' : 0}]
-        for key in ['RMSD', 'POTENTIAL', 'SUM', 'lambdas']:
-            npy_ind = [key in npy_fn for npy_fn in npy_fns].index(True)
-            npy_data = np.load(npy_fns[npy_ind])
-            if key == 'RMSD':
-                self.rmsd_loss = (list(npy_data[0]), list(npy_data[1]))
-                self.epoch = len(self.rmsd_loss[0])
-            elif key == 'POTENTIAL':
-                self.pot_enr_loss = (list(npy_data[0]), list(npy_data[1]))
-            elif key == 'SUM':
-                self.summ_loss = (list(npy_data[0]), list(npy_data[1]))
-            elif key == 'lambdas':
-                self.potential_coefficients = list(npy_data)
-            #print(self.rmsd_loss, self.pot_enr_loss, self.summ_loss, self.potential_coefficients)
-            #assert len(self.rmsd_loss[0]) == len(self.pot_enr_loss[1])
-            #assert len(self.pot_enr_loss[1]) == len(self.summ_loss[0])
-            #assert len(self.lambdas) == len(self.summ_loss[0])
+    #     #Retrieve Loss Data
+    #     npy_fns = glob.glob(os.path.join(self.data_dir, '*.npy'))
+    #     loss_keys = [key for key in {'RMSD': 0, 'POTENTIAL': 0, 'SUM': 0, 'lambdas' : 0}]
+    #     for key in ['RMSD', 'POTENTIAL', 'SUM', 'lambdas']:
+    #         npy_ind = [key in npy_fn for npy_fn in npy_fns].index(True)
+    #         npy_data = np.load(npy_fns[npy_ind])
+    #         if key == 'RMSD':
+    #             self.rmsd_loss = (list(npy_data[0]), list(npy_data[1]))
+    #             self.epoch = len(self.rmsd_loss[0])
+    #         elif key == 'POTENTIAL':
+    #             self.pot_enr_loss = (list(npy_data[0]), list(npy_data[1]))
+    #         elif key == 'SUM':
+    #             self.summ_loss = (list(npy_data[0]), list(npy_data[1]))
+    #         elif key == 'lambdas':
+    #             self.potential_coefficients = list(npy_data)
+    #         #print(self.rmsd_loss, self.pot_enr_loss, self.summ_loss, self.potential_coefficients)
+    #         #assert len(self.rmsd_loss[0]) == len(self.pot_enr_loss[1])
+    #         #assert len(self.pot_enr_loss[1]) == len(self.summ_loss[0])
+    #         #assert len(self.lambdas) == len(self.summ_loss[0])
             
             
     def write_traj(self, identifier, traj_xyz): #(n conf, n_atoms*3) OR (n conf, n_atoms, 3)
@@ -179,11 +179,13 @@ class AutoEncoder_Experiment():
 
     def save_loss_data(self):
         #LOSSES
-        loss_names = ['RMSD', 'POTENTIAL', 'SUMM']
-        for arr in (self.rmsd_loss, self.pot_enr_loss, self.summ_loss):
+        loss_names = ['RMSD', 'TORSION', 'POTENTIAL', 'SUMM']
+        for arr in (self.rmsd_loss, self.tors_loss, self.pot_enr_loss, self.summ_loss):
             np.save(self.data_dir + f'{self.model_name}{self.n_latents:02d}_{loss_names.pop(0)}_{self.epoch:06d}.npy', np.array(arr))
-        #LAMBDAS
+        #LAMBDAS (potential)
         np.save(self.data_dir + f'{self.model_name}{self.n_latents:02d}_lambdas_{self.epoch:06d}.npy', np.array(self.potential_coefficients))
+        #Betas (torsion)
+        np.save(self.data_dir + f'{self.model_name}{self.n_latents:02d}_lambdas_{self.epoch:06d}.npy', np.array(self.torsional_coefficients))
 
     def eval_batches(self, batch_set, eval_function, **kwargs):
         vals = []
@@ -203,6 +205,9 @@ class AutoEncoder_Experiment():
         self.rmsd_loss[0].append(self.eval_batches(self.train_batches, training_functions.atom_rmsd).mean())
         self.rmsd_loss[1].append(self.eval_batches(self.test_batches, training_functions.atom_rmsd).mean())
 
+        self.tors_loss[0].append(self.eval_batches(self.train_batches, training_functions.torsional_diff).mean())
+        self.tors_loss[1].append(self.eval_batches(self.test_batches, training_functions.torsional_diff).mean())
+        
         self.pot_enr_loss[0].append(self.eval_batches(self.train_batches, training_functions.scaled_pot_enr_diff).mean())
         self.pot_enr_loss[1].append(self.eval_batches(self.test_batches, training_functions.scaled_pot_enr_diff).mean())
 
@@ -210,11 +215,23 @@ class AutoEncoder_Experiment():
         self.summ_loss[1].append(self.eval_batches(self.test_batches, training_functions.summation_loss, **kwargs).mean())
 
         most_recent_results = (self.rmsd_loss[0][-1], self.rmsd_loss[1][-1],
+                               self.tors_loss[0][-1], self.tors_loss[1][-1],
                                self.pot_enr_loss[0][-1], self.pot_enr_loss[1][-1],
                                self.summ_loss[0][-1], self.summ_loss[1][-1])
 
         return most_recent_results
 
+
+    def report_last_losses(self, torsional_coefficient, potential_coefficient):
+        last_losses = self.eval_losses(torsional_coefficient=torsional_coefficient, potential_coefficient=potential_coefficient)
+        print('epoch', self.epoch, 'atom_rmsd_nm', '%.4E'%last_losses[0], '%.4E'%last_losses[1],
+              'torsional', '%.4E'%last_losses[2], '%.4E'%last_losses[3],
+              'dPotEnr', '%.4E'%last_losses[4], '%.4E'%last_losses[5],
+              'Summation', '%.4E'%last_losses[6], '%.4E'%last_losses[7],
+              'B=%.4E'%torsional_coefficient, 'L=%.4E'%potential_coefficient)
+        return last_losses
+
+    
     def train_batches_on_step(self, batch_set, step_function, **kwargs):
         f = iter(batch_set)
         #Before EVERY EPOCH
@@ -230,76 +247,117 @@ class AutoEncoder_Experiment():
         save_args = orbax_utils.save_args_from_target(self.state)
         self.checkpoint_manager.save(self.epoch, self.state, save_kwargs={'save_args': save_args})
 
+
     def train_nepochs_on_rmsd(self, num_rmsd_epochs):
         """
         Train on the RMSD function alone, potential coefficient is zero
         """
+        torsional_coefficient = 0
         potential_coefficient = 0
         while self.epoch < num_rmsd_epochs:
             #Training
             self.train_batches_on_step(self.train_batches, training_functions.rmsd_rng_step)
             #After all batches seen this epoch
-            rmsd_train_loss, rmsd_test_loss, pot_enr_train_loss, pot_enr_test_loss, summ_train_loss, summ_test_loss = self.eval_losses(potential_coefficient=potential_coefficient)
-            #Record Data
-            print('epoch', self.epoch, 'atom_rmsd_nm', '%.4E'%rmsd_train_loss, '%.4E'%rmsd_test_loss,
-                  'dPotEnr', '%.4E'%pot_enr_train_loss, '%.4E'%pot_enr_test_loss,
-                  'Summation', '%.4E'%summ_train_loss, '%.4E'%summ_test_loss, 'L=%.4E'%potential_coefficient)
+            last_losses = self.report_last_losses()
             
+            #Record Data
             self.potential_coefficients.append(potential_coefficient)
+            self.torsional_coefficients.append(torsional_coefficient)
             self.epoch += 1
 
     def train_rmsd_threshold(self, nm_cutoff, num_move_ave, cutoff_epoch):
         """
         Train on the RMSD until a nm_cutoff is reached of the last num_mov_ave epochs
         """
+        torsional_coefficient = 0
         potential_coefficient = 0
         while np.mean(self.rmsd_loss[-1][-num_move_ave:]) > nm_cutoff and self.epoch < cutoff_epoch:
             #Training
             self.train_batches_on_step(self.train_batches, training_functions.rmsd_rng_step)
-            # After all batches seen this epoch evaluate losses
-            rmsd_train_loss, rmsd_test_loss, pot_enr_train_loss, pot_enr_test_loss, summ_train_loss, summ_test_loss = self.eval_losses(potential_coefficient=potential_coefficient)
-            # Record Data
-            print('epoch', self.epoch, 'atom_rmsd_nm', '%.4E'%rmsd_train_loss, '%.4E'%rmsd_test_loss,
-                  'dPotEnr', '%.4E'%pot_enr_train_loss, '%.4E'%pot_enr_test_loss,
-                  'Summation', '%.4E'%summ_train_loss, '%.4E'%summ_test_loss, 'L=%.4E'%potential_coefficient)
+            #After all batches seen this epoch
+            last_losses = self.report_last_losses()
+            #Record Data
             self.potential_coefficients.append(potential_coefficient)
+            self.torsional_coefficients.append(torsional_coefficient)
             if self.epoch % 100 == 0:# Once every 100 epoch, dump all loss data to a file
                 self.save_loss_data()
             self.epoch += 1
         return self.epoch
 
+    def train_nepochs_on_torsion(self, num_tors_epochs):
+        """
+        Train on the torsional difference
+        """
+        torsional_coefficient = 1
+        potential_coefficient = 0
+        while self.epoch < num_tors_epochs:
+            #Training
+            self.train_batches_on_step(self.train_batches, training_functions.torsional_rng_step)
+            #After all batches seen this epoch
+            last_losses = self.report_last_losses()
+            
+            #Record Data
+            self.potential_coefficients.append(potential_coefficient)
+            self.torsional_coefficients.append(torsional_coefficient)
+            self.epoch += 1
+
     def train_potential(self, potential_threshold, num_mov_ave, cutoff_epoch):
         potential_not_below_threshold = True
         potential_is_decreasing = True
+        torsional_coefficient = 0
         potential_coefficient = 1
 
         while (potential_not_below_threshold or potential_is_decreasing) and self.epoch < cutoff_epoch:
             # Training
             self.train_batches_on_step(self.train_batches, training_functions.potential_rng_step)
-            # After all batches seen this epoch
-            (rmsd_train_loss, rmsd_test_loss, pot_enr_train_loss, pot_enr_test_loss, summ_train_loss, summ_test_loss) = self.eval_losses(potential_coefficient=potential_coefficient)
-
-            print('epoch', self.epoch, 'atom_rmsd_nm', '%.4E' % rmsd_train_loss, '%.4E' % rmsd_test_loss,
-                  'dPotEnr', '%.4E' % pot_enr_train_loss, '%.4E' % pot_enr_test_loss,
-                  'Summation', '%.4E' % summ_train_loss, '%.4E' % summ_test_loss, 'L=%.4E' % potential_coefficient)
-
+            #After all batches seen this epoch
+            last_losses = self.report_last_losses()
+            #Record Data
             self.potential_coefficients.append(potential_coefficient)
-            if self.epoch % 50 == 0:
-                #Check if NAN and abort if so
-                recent_loss = jnp.array([pot_enr_train_loss, pot_enr_test_loss])
-                if True in jnp.isnan(recent_loss):
-                    raise NotImplementedError('Potential is not meant to be NAN')
+            self.torsional_coefficients.append(torsional_coefficient)
+            
+            # if self.epoch % 50 == 0:
+            #     #Check if NAN and abort if so
+            #     recent_loss = jnp.array([pot_enr_train_loss, pot_enr_test_loss])
+            #     if True in jnp.isnan(recent_loss):
+            #         raise NotImplementedError('Potential is not meant to be NAN')
             if self.epoch % 100 == 0:  # Periodically save loss
                 self.save_loss_data()
-            if self.epoch % 500 == 0:  # Periodically save a traj
-                self.write_decoded_traj()
+            # if self.epoch % 500 == 0:  # Periodically save a traj
+            #     self.write_decoded_traj()
             self.epoch += 1
             # Should break loop?
             doub_mov_ave = 2 * num_mov_ave
             potential_not_below_threshold = (np.mean(self.pot_enr_loss[-1][-num_mov_ave:]) > potential_threshold or
                                              np.mean(self.pot_enr_loss[0][-num_mov_ave:]) > potential_threshold)  # Test and train should be below the threshold
-            potential_is_decreasing = np.mean(self.pot_enr_loss[-1][-doub_mov_ave:-num_mov_ave]) > np.mean(
-                self.pot_enr_loss[-1][-num_mov_ave:])  # Test should continue decreasing
+            potential_is_decreasing = np.mean(self.pot_enr_loss[-1][-doub_mov_ave:-num_mov_ave]) > np.mean(self.pot_enr_loss[-1][-num_mov_ave:])  # Test should continue decreasing
+        return self.epoch
+
+    def train_scaling_torsional(self, cutoff_epoch, freq=10):
+        """
+        Scale the torsion in by frequently changing the coefficient to make torsion equal to rmsd
+        """
+        torsional_coefficient = 0        
+        # Every ten epochs choose lambda as min(1, max(lambda[-1], RMSD/NSD))
+        while torsional_coefficient != 1 and self.epoch < cutoff_epoch:
+            # Sometime check to see if lambda can be larger
+            if self.epoch % freq == 0:
+                torsional_coefficient = np.min((1, np.max((torsional_coefficient, (self.rmsd_loss[0][-1] / self.pot_enr_loss[0][-1])))))
+            # Training
+            self.train_batches_on_step(self.train_batches, training_functions.summation_rng_step, torsional_coefficient=torsional_coefficient)
+            #After all batches seen this epoch
+            last_losses = self.report_last_losses()
+
+            self.torsional_coefficients.append(torsional_coefficient)
+
+            # if self.epoch % 50 == 0:
+            #     #Check if NAN and abort if so
+            #     recent_loss = jnp.array([pot_enr_train_loss, pot_enr_test_loss])
+            #     if True in jnp.isnan(recent_loss):
+            #         raise NotImplementedError('Potential is not meant to be NAN')
+            if self.epoch % 100 == 0:
+                self.save_loss_data()
+            self.epoch += 1
         return self.epoch
 
     def train_scaling_potential(self, cutoff_epoch, freq=10):
@@ -312,24 +370,18 @@ class AutoEncoder_Experiment():
             # Sometime check to see if lambda can be larger
             if self.epoch % freq == 0:
                 potential_coefficient = np.min((1, np.max((potential_coefficient, (self.rmsd_loss[0][-1] / self.pot_enr_loss[0][-1])))))
-            
-            
             # Training
             self.train_batches_on_step(self.train_batches, training_functions.summation_rng_step, potential_coefficient=potential_coefficient)
-            # After all batches seen this epoch
-            (rmsd_train_loss, rmsd_test_loss, pot_enr_train_loss, pot_enr_test_loss, summ_train_loss, summ_test_loss) = self.eval_losses(potential_coefficient=potential_coefficient)
-
-            print('epoch', self.epoch, 'atom_rmsd_nm', '%.4E' % rmsd_train_loss, '%.4E' % rmsd_test_loss,
-                  'dPotEnr', '%.4E' % pot_enr_train_loss, '%.4E' % pot_enr_test_loss,
-                  'Summation', '%.4E' % summ_train_loss, '%.4E' % summ_test_loss, 'L=%.4E' % potential_coefficient)
+            #After all batches seen this epoch
+            last_losses = self.report_last_losses()
 
             self.potential_coefficients.append(potential_coefficient)
 
-            if self.epoch % 50 == 0:
-                #Check if NAN and abort if so
-                recent_loss = jnp.array([pot_enr_train_loss, pot_enr_test_loss])
-                if True in jnp.isnan(recent_loss):
-                    raise NotImplementedError('Potential is not meant to be NAN')
+            # if self.epoch % 50 == 0:
+            #     #Check if NAN and abort if so
+            #     recent_loss = jnp.array([pot_enr_train_loss, pot_enr_test_loss])
+            #     if True in jnp.isnan(recent_loss):
+            #         raise NotImplementedError('Potential is not meant to be NAN')
             if self.epoch % 100 == 0:
                 self.save_loss_data()
             self.epoch += 1
@@ -338,28 +390,26 @@ class AutoEncoder_Experiment():
     def train_summation(self, potential_threshold, num_mov_ave, cutoff_epoch):
         potential_not_below_threshold = True
         potential_is_decreasing = True
+        torsional_coefficient = 1
         potential_coefficient = 1
 
         while (potential_not_below_threshold or potential_is_decreasing) and self.epoch < cutoff_epoch:
             # Training
-            self.train_batches_on_step(self.train_batches, training_functions.summation_rng_step, potential_coefficient=potential_coefficient)
-            # After all batches seen this epoch
-            (rmsd_train_loss, rmsd_test_loss, pot_enr_train_loss, pot_enr_test_loss, summ_train_loss, summ_test_loss) = self.eval_losses(potential_coefficient=potential_coefficient)
-
-            print('epoch', self.epoch, 'atom_rmsd_nm', '%.4E' % rmsd_train_loss, '%.4E' % rmsd_test_loss,
-                  'dPotEnr', '%.4E' % pot_enr_train_loss, '%.4E' % pot_enr_test_loss,
-                  'Summation', '%.4E' % summ_train_loss, '%.4E' % summ_test_loss, 'L=%.4E' % potential_coefficient)
-
+            self.train_batches_on_step(self.train_batches, training_functions.summation_rng_step, torsional_coefficient=torsional_coefficient, potential_coefficient=potential_coefficient)
+            #After all batches seen this epoch
+            last_losses = self.report_last_losses()
+            #Record Data
             self.potential_coefficients.append(potential_coefficient)
-            if self.epoch % 50 == 0:
-                #Check if NAN and abort if so
-                recent_loss = jnp.array([pot_enr_train_loss, pot_enr_test_loss])
-                if True in jnp.isnan(recent_loss):
-                    raise NotImplementedError('Potential is not meant to be NAN')
+            self.torsional_coefficients.append(torsional_coefficient)
+            # if self.epoch % 50 == 0:
+            #     #Check if NAN and abort if so
+            #     recent_loss = jnp.array([pot_enr_train_loss, pot_enr_test_loss])
+            #     if True in jnp.isnan(recent_loss):
+            #         raise NotImplementedError('Potential is not meant to be NAN')
             if self.epoch % 100 == 0:  # Periodically save loss
                 self.save_loss_data()
-            if self.epoch % 500 == 0:  # Periodically save a traj
-                self.write_decoded_traj()
+            # if self.epoch % 500 == 0:  # Periodically save a traj
+            #     self.write_decoded_traj()
             self.epoch += 1
             # Should break loop?
             doub_mov_ave = 2*num_mov_ave
@@ -368,38 +418,38 @@ class AutoEncoder_Experiment():
             potential_is_decreasing = np.mean(self.pot_enr_loss[-1][-doub_mov_ave:-num_mov_ave]) > np.mean(self.pot_enr_loss[-1][-num_mov_ave:])  # Test should continue decreasing
         return self.epoch
 
-    def train_model(self, nm_cutoff, max_rmsd_epoch, potential_threshold, cutoff_epoch):
-        """ CURRENT MAIN USAGE CASE """
-        # RMSD BLOCK 1
-        # Train on RMSD until average of last 100 epochs <1 angstrom
-        # Get first 100 vals
-        print('START RMSD')
-        self.train_nepochs_on_rmsd(100)
-        self.save_loss_data()
-        self.write_model_to_ckpt()
+    # def train_model(self, nm_cutoff, max_rmsd_epoch, potential_threshold, cutoff_epoch):
+    #     """ CURRENT MAIN USAGE CASE """
+    #     # RMSD BLOCK 1
+    #     # Train on RMSD until average of last 100 epochs <1 angstrom
+    #     # Get first 100 vals
+    #     print('START RMSD')
+    #     self.train_nepochs_on_rmsd(100)
+    #     self.save_loss_data()
+    #     self.write_model_to_ckpt()
 
-        # RMSD BLOCK 2
-        # Train until last 100 vals average less than predefined cutoff, always make sure we never train longer than cutoff_epoch
-        begin_scaling_epoch = self.train_rmsd_threshold(nm_cutoff=nm_cutoff, num_move_ave=100, cutoff_epoch=max_rmsd_epoch)
-        self.write_model_to_ckpt()
+    #     # RMSD BLOCK 2
+    #     # Train until last 100 vals average less than predefined cutoff, always make sure we never train longer than cutoff_epoch
+    #     begin_scaling_epoch = self.train_rmsd_threshold(nm_cutoff=nm_cutoff, num_move_ave=100, cutoff_epoch=max_rmsd_epoch)
+    #     self.write_model_to_ckpt()
 
-        # SCALE IN POTENTIAL BLOCK
-        print('START SCALING POTENTIAL')
-        end_scaling_epoch = self.train_scaling_potential(cutoff_epoch=cutoff_epoch)
-        print('END SCALING POTENTIAL')
-        self.save_loss_data()
-        self.write_model_to_ckpt()
+    #     # SCALE IN POTENTIAL BLOCK
+    #     print('START SCALING POTENTIAL')
+    #     end_scaling_epoch = self.train_scaling_potential(cutoff_epoch=cutoff_epoch)
+    #     print('END SCALING POTENTIAL')
+    #     self.save_loss_data()
+    #     self.write_model_to_ckpt()
 
-        #TRAIN ON POTENTIAL BLOCK (MAINTAIN RMSD IF THIS IS AE, DROP THAT TERM IF IT IS VAE
-        if self.model_type == 'VAE':
-            self.train_potential(potential_threshold=potential_threshold, cutoff_epoch=cutoff_epoch)
-        elif self.model_type == 'AE':
-            self.train_summation(potential_coefficient=self.potential_coefficients[-1], potential_threshold=potential_threshold, cutoff_epoch=cutoff_epoch)
-        print('END TRAINING')
-        self.save_loss_data()
-        self.write_model_to_ckpt()
+    #     #TRAIN ON POTENTIAL BLOCK (MAINTAIN RMSD IF THIS IS AE, DROP THAT TERM IF IT IS VAE
+    #     if self.model_type == 'VAE':
+    #         self.train_potential(potential_threshold=potential_threshold, cutoff_epoch=cutoff_epoch)
+    #     elif self.model_type == 'AE':
+    #         self.train_summation(potential_coefficient=self.potential_coefficients[-1], potential_threshold=potential_threshold, cutoff_epoch=cutoff_epoch)
+    #     print('END TRAINING')
+    #     self.save_loss_data()
+    #     self.write_model_to_ckpt()
 
-        return begin_scaling_epoch, end_scaling_epoch
+    #     return begin_scaling_epoch, end_scaling_epoch
 
 
     def graph_losses(self, begin_scaling_epoch=None, end_scaling_epoch=None, yscale='log'):

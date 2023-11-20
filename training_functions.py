@@ -21,8 +21,10 @@ def scaled_pot_enr_diff(a, b, **kwargs): # WITH A AS BATCH AND B AS RECON
     return ((ener_fun(a) - ener_fun(b))/ener_fun(a))**2 #Unitless quantity
 
 @jax.jit
-def summation_loss(a, b, potential_coefficient, **kwargs): # LET A BE BATCH AND B BE RECON
-    return jnp.sqrt(jnp.sum(atom_rmsd(a,b)**2)) + potential_coefficient * scaled_pot_enr_diff(a, b).mean()
+def summation_loss(a, b, torsional_coefficient, potential_coefficient, **kwargs): # LET A BE BATCH AND B BE RECON
+    return jnp.sqrt(jnp.sum(atom_rmsd(a,b)**2)) + \
+           torsional_coefficient * torsional_diff(a, b).mean() + \
+           potential_coefficient * scaled_pot_enr_diff(a, b).mean()
 
 #Steps with no rng
 @jax.jit
