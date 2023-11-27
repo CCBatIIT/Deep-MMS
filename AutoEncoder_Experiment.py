@@ -205,8 +205,8 @@ class AutoEncoder_Experiment():
         self.rmsd_loss[0].append(self.eval_batches(self.train_batches, training_functions.atom_rmsd).mean())
         self.rmsd_loss[1].append(self.eval_batches(self.test_batches, training_functions.atom_rmsd).mean())
 
-        self.tors_loss[0].append(self.eval_batches(self.train_batches, training_functions.torsional_diff).mean())
-        self.tors_loss[1].append(self.eval_batches(self.test_batches, training_functions.torsional_diff).mean())
+        self.tors_loss[0].append(self.eval_batches(self.train_batches, training_functions.sqr_torsional_loss).mean())
+        self.tors_loss[1].append(self.eval_batches(self.test_batches, training_functions.sqr_torsional_loss).mean())
         
         self.pot_enr_loss[0].append(self.eval_batches(self.train_batches, training_functions.scaled_pot_enr_diff).mean())
         self.pot_enr_loss[1].append(self.eval_batches(self.test_batches, training_functions.scaled_pot_enr_diff).mean())
@@ -247,6 +247,55 @@ class AutoEncoder_Experiment():
         save_args = orbax_utils.save_args_from_target(self.state)
         self.checkpoint_manager.save(self.epoch, self.state, save_kwargs={'save_args': save_args})
 
+    def train_nepochs(self, loss_obj, num_epochs, coefficients=[0, 0]):
+        """Choose a parameter to test the loss of loss_obj
+        loss_obj = instance of training function that you would like to use
+        
+        Example: Train 100 epochs on RMSD and torsion, with B=0.5 and L=0
+            train_nepochs(training_functions.rmsd_rng_step, 100, coefficients=(0.5, 0))
+        """
+        torsional_coefficient, potential_coefficient = coefficients
+        while self.epoch < num_epochs:
+            #Training
+            self.train_batches_on_step(self.train_batches, loss_obj)
+            #After all batches seen this epoch
+            last_losses = self.report_last_losses(*coefficients)
+
+            #Record Data
+            self.potential_coefficients.append(coefficients[1])
+            self.torsional_coefficients.append(coefficients[0])
+            self.epoch += 1
+
+    def train_scaling_coef(self, loss_obj, cutoff_epoch, scaling_coef_ind, freq=10, coefficients=[0, 0]):
+        """
+        Scale the torsion with coef 0 and the potential with coef 1
+        """
+        assert scaling_coef_ind in [0, 1]
+        # Every ten epochs choose lambda as min(1, max(lambda[-1], RMSD/NSD))
+        while coefficients[scaling_coef_ind] != 1 and self.epoch < cutoff_epoch:
+            # Sometime check to see if coef can be larger
+            if self.epoch % freq == 0:
+                #A small part that hard codes which is which
+                if scaling_coef_ind == 0:
+                    prop_coef = (self.rmsd_loss[0][-1] / self.tors_loss[0][-1])
+                elif scaling_coef_ind == 1:
+                    prop_coef = (self.rmsd_loss[0][-1] / self.pot_enr_loss[0][-1])
+                #Propose next coefficient
+                coefficients[scaling_coef_ind] = np.min((1, np.max((coefficients[scaling_coef_ind], prop_coef))))
+            # Training
+            self.train_batches_on_step(self.train_batches, loss_obj, torsional_coefficient=coefficients[0], potential_coefficient=coefficients[1])
+            #After all batches seen this epoch
+            last_losses = self.report_last_losses(*coefficients)
+
+            #Record Data
+            self.potential_coefficients.append(coefficients[1])
+            self.torsional_coefficients.append(coefficients[0])
+            
+            if self.epoch % 100 == 0:
+                self.save_loss_data()
+            
+            self.epoch += 1
+        return self.epoch
 
     def train_nepochs_on_rmsd(self, num_rmsd_epochs):
         """
@@ -258,7 +307,7 @@ class AutoEncoder_Experiment():
             #Training
             self.train_batches_on_step(self.train_batches, training_functions.rmsd_rng_step)
             #After all batches seen this epoch
-            last_losses = self.report_last_losses()
+            last_losses = self.report_last_losses(torsional_coefficient, potential_coefficient)
             
             #Record Data
             self.potential_coefficients.append(potential_coefficient)
@@ -275,7 +324,7 @@ class AutoEncoder_Experiment():
             #Training
             self.train_batches_on_step(self.train_batches, training_functions.rmsd_rng_step)
             #After all batches seen this epoch
-            last_losses = self.report_last_losses()
+            last_losses = self.report_last_losses(torsional_coefficient, potential_coefficient)
             #Record Data
             self.potential_coefficients.append(potential_coefficient)
             self.torsional_coefficients.append(torsional_coefficient)
@@ -294,7 +343,7 @@ class AutoEncoder_Experiment():
             #Training
             self.train_batches_on_step(self.train_batches, training_functions.torsional_rng_step)
             #After all batches seen this epoch
-            last_losses = self.report_last_losses()
+            last_losses = self.report_last_losses(torsional_coefficient, potential_coefficient)
             
             #Record Data
             self.potential_coefficients.append(potential_coefficient)
@@ -311,7 +360,7 @@ class AutoEncoder_Experiment():
             # Training
             self.train_batches_on_step(self.train_batches, training_functions.potential_rng_step)
             #After all batches seen this epoch
-            last_losses = self.report_last_losses()
+            last_losses = self.report_last_losses(torsional_coefficient, potential_coefficient)
             #Record Data
             self.potential_coefficients.append(potential_coefficient)
             self.torsional_coefficients.append(torsional_coefficient)
@@ -337,16 +386,17 @@ class AutoEncoder_Experiment():
         """
         Scale the torsion in by frequently changing the coefficient to make torsion equal to rmsd
         """
-        torsional_coefficient = 0        
+        torsional_coefficient = 0
+        potential_coefficient = 0
         # Every ten epochs choose lambda as min(1, max(lambda[-1], RMSD/NSD))
         while torsional_coefficient != 1 and self.epoch < cutoff_epoch:
             # Sometime check to see if lambda can be larger
             if self.epoch % freq == 0:
-                torsional_coefficient = np.min((1, np.max((torsional_coefficient, (self.rmsd_loss[0][-1] / self.pot_enr_loss[0][-1])))))
+                torsional_coefficient = np.min((1, np.max((torsional_coefficient, (self.rmsd_loss[0][-1] / self.tors_loss[0][-1])))))
             # Training
-            self.train_batches_on_step(self.train_batches, training_functions.summation_rng_step, torsional_coefficient=torsional_coefficient)
+            self.train_batches_on_step(self.train_batches, training_functions.summation_rng_step, torsional_coefficient=torsional_coefficient, potential_coefficient=potential_coefficient)
             #After all batches seen this epoch
-            last_losses = self.report_last_losses()
+            last_losses = self.report_last_losses(torsional_coefficient, potential_coefficient)
 
             self.torsional_coefficients.append(torsional_coefficient)
 
@@ -373,7 +423,7 @@ class AutoEncoder_Experiment():
             # Training
             self.train_batches_on_step(self.train_batches, training_functions.summation_rng_step, potential_coefficient=potential_coefficient)
             #After all batches seen this epoch
-            last_losses = self.report_last_losses()
+            last_losses = self.report_last_losses(torsional_coefficient, potential_coefficient)
 
             self.potential_coefficients.append(potential_coefficient)
 
@@ -397,7 +447,7 @@ class AutoEncoder_Experiment():
             # Training
             self.train_batches_on_step(self.train_batches, training_functions.summation_rng_step, torsional_coefficient=torsional_coefficient, potential_coefficient=potential_coefficient)
             #After all batches seen this epoch
-            last_losses = self.report_last_losses()
+            last_losses = self.report_last_losses(torsional_coefficient, potential_coefficient)
             #Record Data
             self.potential_coefficients.append(potential_coefficient)
             self.torsional_coefficients.append(torsional_coefficient)

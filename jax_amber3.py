@@ -1,7 +1,8 @@
 import numpy as np
 import jax.numpy as jnp
 import jax, re, sys
-_ONE_4PI_EPS0 = jnp.float32(138.935456)
+
+_ONE_4PI_EPS0 = 138.935456
 
 def amber_prmtop_load(fname_prmtop):
     ''' From openmm/wrappers/python/openmm/app/internal/amber_file_parser.py

@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import jax_amber3 as ja
 
 fname_prmtop = os.path.join(os.getcwd(), 'Simulation/1crn_H.prmtop')
-ener_fun, tors_fun = ja.get_amber_gas_energy_function(fname_prmtop)
+ener_fun, tors_fun = ja.get_amber_functions(fname_prmtop)
 
 #Mathematical Functions
 @jax.vmap
@@ -13,17 +13,28 @@ def atom_rmsd(a, b, **kwargs): # for arrays of (n_conf, n_atom*3)
     return jnp.mean(jnp.sqrt((b[x_inds] - a[x_inds])**2 + (b[y_inds] - a[y_inds])**2 + (b[z_inds] - a[z_inds])**2))
 
 @jax.jit
-def torsional_diff(a, b):
-    return jnp.min(jnp.stack((tors_fun(a) - tors_fun(b), 2*jnp.pi - tors_fun(a) + tors_fun(b))), axis=0)
+def abs_torsional_diff(a, b):
+    """for moleuclar sets, a, b"""
+    a, b = tors_fun(a), tors_fun(b)
+    return jnp.min(jnp.abs(jnp.stack((a - b, 2*jnp.pi - a + b, 2*jnp.pi - b + a))), axis=0)
+
+@jax.jit
+def sqr_torsional_loss(a, b):
+    """sums squared torsional distances"""
+    return jnp.mean(abs_torsional_diff(a,b)**2)
 
 @jax.jit
 def scaled_pot_enr_diff(a, b, **kwargs): # WITH A AS BATCH AND B AS RECON
     return ((ener_fun(a) - ener_fun(b))/ener_fun(a))**2 #Unitless quantity
 
 @jax.jit
+def structural_summation(a, b, torsional_coefficient, **kwargs): # LET A BE BATCH AND B BE RECON
+    return jnp.sqrt(jnp.sum(atom_rmsd(a,b)**2)) + torsional_coefficient * sqr_torsional_loss(a, b)
+
+@jax.jit
 def summation_loss(a, b, torsional_coefficient, potential_coefficient, **kwargs): # LET A BE BATCH AND B BE RECON
     return jnp.sqrt(jnp.sum(atom_rmsd(a,b)**2)) + \
-           torsional_coefficient * torsional_diff(a, b).mean() + \
+           torsional_coefficient * sqr_torsional_loss(a, b) + \
            potential_coefficient * scaled_pot_enr_diff(a, b).mean()
 
 #Steps with no rng
@@ -39,7 +50,7 @@ def rmsd_step(state, batch_x, **kwargs):
 def torsional_step(state, batch_x, **kwargs):
     def loss_fn(params, apply_fn):
         decoded_x = apply_fn({'params':params}, batch_x)[0]
-        return torsionl_diff(batch_x, decoded_x).mean()
+        return sqr_torsional_loss(batch_x, decoded_x).mean()
     grads = jax.grad(loss_fn)(state.params, state.apply_fn)
     return state.apply_gradients (grads=grads)
 
@@ -72,7 +83,7 @@ def rmsd_rng_step(state, batch_x, z_rng, **kwargs):
 def torsional_rng_step(state, batch_x, z_rng, **kwargs):
     def loss_fn(params, apply_fn):
         decoded_x = apply_fn({'params':params}, batch_x, z_rng)[0]
-        return torsional_diff(batch_x, decoded_x).mean()
+        return sqr_torsional_loss(batch_x, decoded_x)
     grads = jax.grad(loss_fn)(state.params, state.apply_fn)
     return state.apply_gradients(grads=grads)
 
@@ -85,9 +96,17 @@ def potential_rng_step(state, batch_x, z_rng, **kwargs):
     return state.apply_gradients(grads=grads)
 
 @jax.jit
-def summation_rng_step(state, batch_x, z_rng, potential_coefficient, **kwargs):
+def structural_rng_step(state, batch_x, z_rng, **kwargs):
     def loss_fn(params, apply_fn):
         decoded_x = apply_fn({'params':params}, batch_x, z_rng)[0]
-        return summation_loss(batch_x, decoded_x, potential_coefficient)
+        return structural_summation(batch_x, decoded_x, **kwargs)
+    grads = jax.grad(loss_fn)(state.params, state.apply_fn)
+    return state.apply_gradients(grads=grads)
+
+@jax.jit
+def summation_rng_step(state, batch_x, z_rng, **kwargs):
+    def loss_fn(params, apply_fn):
+        decoded_x = apply_fn({'params':params}, batch_x, z_rng)[0]
+        return summation_loss(batch_x, decoded_x, **kwargs)
     grads = jax.grad(loss_fn)(state.params, state.apply_fn)
     return state.apply_gradients(grads=grads)
