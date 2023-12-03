@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 
 import jax, optax, orbax, sys, os, json, pickle, NN_models, training_functions, glob
 import jax.numpy as jnp
-import jax_amber2 as jaa
+import jax_amber3 as jaa
 
 from flax import linen as nn
 from flax.training import train_state, orbax_utils
@@ -205,8 +205,8 @@ class AutoEncoder_Experiment():
         self.rmsd_loss[0].append(self.eval_batches(self.train_batches, training_functions.atom_rmsd).mean())
         self.rmsd_loss[1].append(self.eval_batches(self.test_batches, training_functions.atom_rmsd).mean())
 
-        self.tors_loss[0].append(self.eval_batches(self.train_batches, training_functions.sqr_torsional_loss).mean())
-        self.tors_loss[1].append(self.eval_batches(self.test_batches, training_functions.sqr_torsional_loss).mean())
+        self.tors_loss[0].append(self.eval_batches(self.train_batches, training_functions.atom_rmtd).mean())
+        self.tors_loss[1].append(self.eval_batches(self.test_batches, training_functions.atom_rmtd).mean())
         
         self.pot_enr_loss[0].append(self.eval_batches(self.train_batches, training_functions.scaled_pot_enr_diff).mean())
         self.pot_enr_loss[1].append(self.eval_batches(self.test_batches, training_functions.scaled_pot_enr_diff).mean())
@@ -257,7 +257,8 @@ class AutoEncoder_Experiment():
         torsional_coefficient, potential_coefficient = coefficients
         while self.epoch < num_epochs:
             #Training
-            self.train_batches_on_step(self.train_batches, loss_obj)
+            self.train_batches_on_step(self.train_batches, loss_obj, 
+                                       torsional_coefficient=torsional_coefficient, potential_coefficient=potential_coefficient)
             #After all batches seen this epoch
             last_losses = self.report_last_losses(*coefficients)
 
