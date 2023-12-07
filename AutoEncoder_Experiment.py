@@ -171,7 +171,7 @@ class AutoEncoder_Experiment():
         return decoded, latent
     
     def write_decoded_traj(self, idfn=None):
-        decoded, latent = reconstruct(self.test_data, self.epoch)
+        decoded, latent = self.reconstruct(self.test_data, self.epoch)
         if idfn != None:
             self.write_traj(idfn, decoded)
         else:
@@ -265,7 +265,13 @@ class AutoEncoder_Experiment():
             #Record Data
             self.potential_coefficients.append(coefficients[1])
             self.torsional_coefficients.append(coefficients[0])
+            
+            if self.epoch % 100 == 0:
+                self.save_loss_data()
+            
             self.epoch += 1
+            
+            
 
     def train_scaling_coef(self, loss_obj, cutoff_epoch, scaling_coef_ind, freq=10, coefficients=[0, 0]):
         """

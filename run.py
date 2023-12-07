@@ -8,7 +8,7 @@ import training_functions as tf
 
 jax.config.update("jax_enable_x64", True)
 
-json_fn = string(sys.argv[1])
+json_fn = sys.argv[1]
 with open(json_fn, 'r') as g:
         json_params = json.load(g)
 
@@ -16,5 +16,6 @@ with open(json_fn, 'r') as g:
 experiment = AutoEncoder_Experiment(json_fn)
 
 #Try training n_epochs on the structural loss function
-n_epochs = int(sys.argv[2])
-experiment.train_nepochs(tf.structural_rng_step, n_epochs, coefficients=[1,0])
+experiment.train_nepochs(tf.structural_rng_step, 100, coefficients=[1,0])
+experiment.train_scaling_coef(tf.summation_rng_step, 5000, 1, coefficients=[1,0])
+experiment.write_decoded_traj()
