@@ -30,7 +30,7 @@ def atom_rmtd(a, b, **kwargs):
 @jax.jit
 def structural_loss(a, b, torsional_coefficient, **kwargs): # LET A BE BATCH AND B BE RECON
     """RMSD plus RMTD, RMTD can be scaled by torsional_coefficient"""
-    return jnp.sqrt(jnp.sum(atom_rmsd(a,b)**2 + torsional_coefficient*atom_rmtd(a,b)**2))
+    return jnp.sqrt(jnp.sum(atom_rmsd(a,b)**2)) + jnp.sqrt(jnp.sum(torsional_coefficient*atom_rmtd(a,b)**2))
 
 @jax.jit
 def scaled_pot_enr_diff(a, b, **kwargs): # WITH A AS BATCH AND B AS RECON
@@ -40,7 +40,7 @@ def scaled_pot_enr_diff(a, b, **kwargs): # WITH A AS BATCH AND B AS RECON
 @jax.jit
 def summation_loss(a, b, torsional_coefficient, potential_coefficient, **kwargs): # LET A BE BATCH AND B BE RECON
     """A loss function incorporating RMSD, RMTD, and potential deviation"""
-    return structural_loss(a, b, torsional_coefficient) + potential_coefficient * scaled_pot_enr_diff(a, b).mean()
+    return structural_loss(a, b, torsional_coefficient=torsional_coefficient) + potential_coefficient * scaled_pot_enr_diff(a, b).mean()
 
 #General Step functions (in development)
 @jax.jit
@@ -67,7 +67,7 @@ def rmsd_rng_step(state, batch, z_rng, **kwargs):
         decoded, _ = apply_fn({'params':params}, batch, z_rng)
         return jnp.sqrt(jnp.sum(atom_rmsd(batch, decoded)**2))
     grads = jax.grad(loss_fn)(state.params, state.apply_fn)
-    return state.apply_gradients(grads=grads)
+    return state.apply_gradients(grads=grads), loss_fn(state.params, state.apply_fn)
 
 @jax.jit
 def rmtd_rng_step(state, batch, z_rng, **kwargs):
@@ -75,7 +75,7 @@ def rmtd_rng_step(state, batch, z_rng, **kwargs):
         decoded, _ = apply_fn({'params':params}, batch, z_rng)
         return jnp.sqrt(jnp.sum(atom_rmtd(batch, decoded)**2))
     grads = jax.grad(loss_fn)(state.params, state.apply_fn)
-    return state.apply_gradients(grads=grads)
+    return state.apply_gradients(grads=grads), loss_fn(state.params, state.apply_fn)
 
 @jax.jit
 def potential_rng_step(state, batch, z_rng, **kwargs):
@@ -83,7 +83,7 @@ def potential_rng_step(state, batch, z_rng, **kwargs):
         decoded, _ = apply_fn({'params':params}, batch, z_rng)
         return scaled_pot_enr_diff(batch, decoded).mean()
     grads = jax.grad(loss_fn)(state.params, state.apply_fn)
-    return state.apply_gradients(grads=grads)
+    return state.apply_gradients(grads=grads), loss_fn(state.params, state.apply_fn)
 
 @jax.jit
 def structural_rng_step(state, batch_x, z_rng, **kwargs):
@@ -91,7 +91,7 @@ def structural_rng_step(state, batch_x, z_rng, **kwargs):
         decoded_x = apply_fn({'params':params}, batch_x, z_rng)[0]
         return structural_loss(batch_x, decoded_x, **kwargs)
     grads = jax.grad(loss_fn)(state.params, state.apply_fn)
-    return state.apply_gradients(grads=grads)
+    return state.apply_gradients(grads=grads), loss_fn(state.params, state.apply_fn)
 
 @jax.jit
 def summation_rng_step(state, batch_x, z_rng, **kwargs):
@@ -99,4 +99,5 @@ def summation_rng_step(state, batch_x, z_rng, **kwargs):
         decoded_x = apply_fn({'params':params}, batch_x, z_rng)[0]
         return summation_loss(batch_x, decoded_x, **kwargs)
     grads = jax.grad(loss_fn)(state.params, state.apply_fn)
-    return state.apply_gradients(grads=grads)
+    return state.apply_gradients(grads=grads), loss_fn(state.params, state.apply_fn)
+

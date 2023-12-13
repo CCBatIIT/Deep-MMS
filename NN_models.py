@@ -20,17 +20,6 @@ class DataStream():
 
 
 #AE Classes
-class Sigmoid_Encoder(nn.Module):
-    d_hidden: list
-    n_latents: int
-    
-    @nn.compact
-    def __call__(self, x):
-        for i, d_hidden in enumerate(self.d_hidden):
-            x = nn.sigmoid(nn.Dense(d_hidden)(x))
-        x = nn.Dense(self.n_latents)(x)
-        return x
-
 class Sigmoid_Dropout_Encoder(nn.Module):
     d_hidden: list
     latents: int
@@ -44,26 +33,17 @@ class Sigmoid_Dropout_Encoder(nn.Module):
         x = nn.Dense(self.latents, name='f5')(x)
         return x
 
-class Softmax_Sigmoid_Encoder(nn.Module):
+class Jibs_Encoder(nn.Module):
     d_hidden: list
     n_latents: int
-
+    dropout_rates: list
+    
     @nn.compact
     def __call__(self, x):
-        for i, d_hidden in enumerate(self.d_hidden):
-            x = nn.sigmoid(nn.Dense(d_hidden)(x))
-        x = nn.softmax(nn.Dense(self.n_latents)(x)) #Only difference between this class and above, how can it inherit?
-        return x
-
-class Sigmoid_Decoder(nn.Module):
-    d_hidden: list
-    out_dim: int
-
-    @nn.compact
-    def __call__(self, x):
-        for i, d_hidden in reversed(list(enumerate(self.d_hidden))):
-            x = nn.sigmoid(nn.Dense(d_hidden)(x))
-        x = nn.Dense(self.out_dim)(x)
+        x = nn.Dropout(rate=self.dropout_rates[0])(nn.relu(nn.Dense(self.d_hidden[0])(x)), deterministic=True)
+        x = nn.Dropout(rate=self.dropout_rates[1])(nn.sigmoid(nn.Dense(self.d_hidden[1])(x)), deterministic=True)
+        x = nn.Dropout(rate=self.dropout_rates[2])(nn.relu(nn.Dense(self.d_hidden[2])(x)), deterministic=True)
+        x = nn.softmax(nn.Dense(self.n_latents)(x))
         return x
 
 class Sigmoid_Dropout_Decoder(nn.Module):
@@ -79,21 +59,18 @@ class Sigmoid_Dropout_Decoder(nn.Module):
         z = nn.Dense(self.out_dim, name='f5')(z)
         return z
 
-class Sigmoid_AutoEncoder(nn.Module):
-    input_size: int
-    hidden_layers: tuple
-    n_latents: int
+class Jibs_Decoder(nn.Module):
+    d_hidden: list
+    out_dim: int
+    dropout_rates: list
 
-    def setup(self):
-        self.encoder = Sigmoid_Encoder(list(self.hidden_layers), self.n_latents)
-        self.decoder = Sigmoid_Decoder(list(self.hidden_layers), self.input_size)
-
-    def __call__(self, x):
-        z_latent = self.encoder(x)
-        return self.decoder(z_latent), z_latent
-
-    def decode(self, z):
-        return self.decoder(z)
+    @nn.compact
+    def __call__(self, z):
+        z = nn.Dropout(rate=self.dropout_rates[2])(nn.relu(nn.Dense(self.d_hidden[2])(z)), deterministic=True)
+        z = nn.Dropout(rate=self.dropout_rates[1])(nn.sigmoid(nn.Dense(self.d_hidden[1])(z)), deterministic=True)
+        z = nn.Dropout(rate=self.dropout_rates[0])(nn.relu(nn.Dense(self.d_hidden[0])(z)), deterministic=True)
+        z = nn.Dense(self.out_dim, name='f5')(z)
+        return z
 
 class Sigmoid_Dropout_AutoEncoder(nn.Module):
     input_size: int
@@ -112,18 +89,19 @@ class Sigmoid_Dropout_AutoEncoder(nn.Module):
     def decode(self, z, rng):
         return self.decoder(z)
 
-class Softmax_Sigmoid_AutoEncoder(nn.Module):
+class Jibs_AutoEncoder(nn.Module):
     input_size: int
     hidden_layers: tuple
     n_latents: int
+    dropout_rates: list
 
     def setup(self):
-        self.encoder = Softmax_Sigmoid_Encoder(list(self.hidden_layers), self.n_latents)
-        self.decoder = Sigmoid_Decoder(list(self.hidden_layers), self.input_size)
+        self.encoder = Jibs_Encoder(list(self.hidden_layers), self.n_latents, self.dropout_rates)
+        self.decoder = Jibs_Decoder(list(self.hidden_layers), self.input_size, self.dropout_rates)
 
-    def __call__(self, x):
+    def __call__(self, x, z_rng):
         z_latent = self.encoder(x)
         return self.decoder(z_latent), z_latent
 
-    def decode(self, z):
+    def decode(self, z, z_rng):
         return self.decoder(z)
