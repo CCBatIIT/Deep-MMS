@@ -1,7 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-import jax, optax, orbax, sys, os, json, pickle, NN_models, training_functions, glob
+import jax, optax, orbax, sys, os, json, pickle, training_functions, glob
+from NN_models import *
 import jax.numpy as jnp
 import jax_amber3 as jaa
 
@@ -26,7 +27,8 @@ class AutoEncoder_Experiment():
         
         #Model
         self.model_name = self.json_params["model"]["model_name"]
-        model_type = self.json_params["model"]["model_type"]
+        self.model_type = self.json_params["model"]["model_type"]
+        self.model_class = self.json_params["model"]["model_class"]
         
         #Training
         self.n_latents = self.json_params["training"]["arch"]["latent_dim"]
@@ -77,10 +79,9 @@ class AutoEncoder_Experiment():
         print(self.train_data.shape, self.test_data.shape)
         
         #Initialize Model
-        print(f'### MODEL TYPE = {model_type} ###')
-        self.model_type = model_type
-        self.model = NN_models.Sigmoid_Dropout_AutoEncoder(input_size=input_size, n_latents=self.n_latents,
-                                                           hidden_layers=hidden_layers, dropout_rates=dropout_rates)
+        print(f'### MODEL TYPE = {self.model_type} ###')
+        self.model = globals()[self.model_class](input_size=input_size, n_latents=self.n_latents,
+                                                 hidden_layers=hidden_layers, dropout_rates=dropout_rates)
         rng_init = jax.random.PRNGKey(rng_key)
         rng, key = jax.random.split(rng_init)
         self.state = train_state.TrainState.create(apply_fn=self.model.apply,
@@ -95,12 +96,12 @@ class AutoEncoder_Experiment():
         num_train = self.train_data.shape[0]
         num_complete_batches, leftover = divmod(num_train, batch_size)
         self.num_train_batches = num_complete_batches + bool(leftover)
-        self.train_batches = NN_models.DataStream(self.n_latents, num_train, self.num_train_batches, batch_size, self.train_data)
+        self.train_batches = DataStream(self.n_latents, num_train, self.num_train_batches, batch_size, self.train_data)
         #Test
         num_test = self.test_data.shape[0]
         num_complete_batches, leftover = divmod(num_test, batch_size)
         self.num_test_batches = num_complete_batches + bool(leftover)
-        self.test_batches = NN_models.DataStream(self.n_latents, num_test, self.num_test_batches, batch_size, self.test_data)
+        self.test_batches = DataStream(self.n_latents, num_test, self.num_test_batches, batch_size, self.test_data)
         
         #Initialize data_storage
         self.data_file = open(os.path.join(self.data_dir, f'model_{self.model_name}_{self.n_latents:02d}.out'), 'w')
@@ -244,15 +245,19 @@ class AutoEncoder_Experiment():
     def report_last_losses(self, torsional_coefficient, potential_coefficient):
         #Evaluate and Record
         last_losses = self.eval_losses(torsional_coefficient=torsional_coefficient, potential_coefficient=potential_coefficient)
-        #Run an NAN check
-        isNAN_check = True in jnp.isnan(last_losses)
         #Report Loss Values
-        print('epoch', self.epoch, 'atom_rmsd_nm', '%.4E'%last_losses[0], '%.4E'%last_losses[1],
-              'torsional', '%.4E'%last_losses[2], '%.4E'%last_losses[3],
-              'dPotEnr', '%.4E'%last_losses[4], '%.4E'%last_losses[5],
-              'Summation', '%.4E'%last_losses[6], '%.4E'%last_losses[7],
+        print(self.epoch, '%.4E'%last_losses[0], '%.4E'%last_losses[1],
+              '%.4E'%last_losses[2], '%.4E'%last_losses[3], '%.4E'%last_losses[4],
+              '%.4E'%last_losses[5], '%.4E'%last_losses[6], '%.4E'%last_losses[7],
               'B=%.4E'%torsional_coefficient, 'L=%.4E'%potential_coefficient)
-        return isNAN_check
+        #print('epoch', self.epoch, 'atom_rmsd_nm', '%.4E'%last_losses[0], '%.4E'%last_losses[1],
+        #      'torsional', '%.4E'%last_losses[2], '%.4E'%last_losses[3],
+        #      'dPotEnr', '%.4E'%last_losses[4], '%.4E'%last_losses[5],
+        #      'Summation', '%.4E'%last_losses[6], '%.4E'%last_losses[7],
+        #      'B=%.4E'%torsional_coefficient, 'L=%.4E'%potential_coefficient)
+        #Run an NAN check
+        NAN_check = jnp.isnan(last_losses)
+        return NAN_check
 
     
     def train_batches_on_step(self, batch_set, step_function, **kwargs):
@@ -273,12 +278,15 @@ class AutoEncoder_Experiment():
         self.checkpoint_manager.save(self.epoch, self.state, save_kwargs={'save_args': save_args})
         return np.array(loss_vals).mean()
 
-    def post_epoch(self, coefficients):
+    def post_epoch(self, coefficients, nan_check_ind=-1):
         """Things that happen after every epoch, no matter the loss_function"""
         #Record losses and run NAN check
-        isNAN_check = self.report_last_losses(*coefficients)
+        torsional_coefficient, potential_coefficient = coefficients
+        nan_check = self.report_last_losses(torsional_coefficient, potential_coefficient)[:nan_check_ind]
+        isNAN_check = True in nan_check
         if isNAN_check:
             print("NAN is no-bueno")
+            print(nan_check)            
             sys.exit(69)
         #Record Numpy files sometimes
         if self.epoch % 200 == 0:
@@ -286,7 +294,7 @@ class AutoEncoder_Experiment():
         #iterate the epoch
         self.epoch += 1
         
-    def train_nepochs(self, step_fun, num_epochs, coefficients=[0, 0]):
+    def train_nepochs(self, step_fun, num_epochs, coefficients=[0, 0], nan_check_ind=-1):
         """Choose a parameter to test the loss of step_fun
         step_fun = instance of training function that you would like to use
         (Recently Adjusted to actually go n_epochs, not up to the given epoch)
@@ -300,11 +308,11 @@ class AutoEncoder_Experiment():
                                                          torsional_coefficient=torsional_coefficient,
                                                          potential_coefficient=potential_coefficient)
             #After all batches seen this epoch
-            self.post_epoch(coefficients)
+            self.post_epoch(coefficients, nan_check_ind)
             
         return self.epoch
 
-    def train_scaling_coef(self, step_fun, cutoff_epoch, scaling_coef_ind, freq=10, coefficients=[0, 0]):
+    def train_scaling_coef(self, step_fun, cutoff_epoch, scaling_coef_ind, freq=10, coefficients=[0, 0], nan_check_ind=-1):
         """
         Scale the torsion with scaling_coef_ind 0 and the potential with scaling_coef_ind 1
         Typically the potential must be scaled, not the torsion 
@@ -325,14 +333,14 @@ class AutoEncoder_Experiment():
                 
             # Training
             loss_this_epoch = self.train_batches_on_step(self.train_batches, step_fun,
-                                                         torsional_coefficient=torsional_coefficient,
-                                                         potential_coefficient=potential_coefficient)
+                                                         torsional_coefficient=coefficients[0],
+                                                         potential_coefficient=coefficients[1])
             #After all batches seen this epoch
-            self.post_epoch(coefficients)
+            self.post_epoch(coefficients, nan_check_ind)
             
         return self.epoch
 
-    def train_to_threshold(self, step_fun, threshold, cutoff_epoch, coefficients=[1, 1]):
+    def train_to_threshold(self, step_fun, threshold, cutoff_epoch, coefficients=[1, 1], nan_check_ind=-1):
         """Train the NN on the given step_fun, until the value of that function is below threshold"""
         
         torsional_coefficient, potential_coefficient = coefficients
@@ -343,15 +351,47 @@ class AutoEncoder_Experiment():
                                                          torsional_coefficient=torsional_coefficient,
                                                          potential_coefficient=potential_coefficient)
             #After all batches seen this epoch
-            self.post_epoch(coefficients)
+            self.post_epoch(coefficients, nan_check_ind)
             
         return self.epoch
 
-    def main_train(self, n_init, struct_thresh, struct_cutoff_epoch, scaling_cutoff_epoch, final_thresh, final_cutoff_epoch):
+    def run_main(self):
         """ Run structural training with torsion in (first for 100 epoch, then until it reaches struct_thresh) until struct_cutoff
             Followed by potential scaling (up to scaling_cutoff_epoch)
             Followed by final training (training of full function to final_thresh)"""
-        end_init_epoch = self.train_nepochs(training_functions.structural_rng_step, n_init, coefficients=[1,0])
-        end_struct_epoch = self.train_to_threshold(training_functions.structural_rng_step, struct_thresh, struct_cutoff_epoch, coefficients=[1,0])
-        end_scaling_epoch = self.train_scaling_coef(training_functions.summation_rng_step, scaling_cutoff_epoch, 1, coefficients=[1,0])
-        end_training_epoch = self.train_to_threshold(training_functions.summation_rng_step, final_thresh, final_cutoff_epoch, coefficients[1, 1])
+        
+        print('Main Invoked with the following params:')
+        num_init_epochs = self.json_params["training"]["epoch"]["num_init_epochs"]
+        struct_cutoff = self.json_params["training"]["epoch"]["struct_cutoff"]
+        scaling_cutoff = self.json_params["training"]["epoch"]["scaling_cutoff"]
+        final_cutoff = self.json_params["training"]["epoch"]["max_epoch"]
+        
+        struct_thresh = self.json_params["training"]["thresh"]["structural_go_to_scaling"]
+        final_thresh = self.json_params["training"]["thresh"]["final_to_end"]
+
+        print(f"Epochs - Init: {num_init_epochs}, Struct: {struct_cutoff}, Scale: {scaling_cutoff}, Final {final_cutoff}")
+        print(f"Threshholds - Struct {struct_thresh}, Final {final_thresh}")
+        
+        print('##############################')
+        print('#####', f'Init {self.epoch:05d}', '#####')
+        print('##############################')
+        end_init_epoch = self.train_nepochs(training_functions.structural_rng_step,
+                                            num_init_epochs, coefficients=[1,0], nan_check_ind=-4)
+        print('##############################')
+        print('#####', f'Strt {self.epoch:05d}', '#####')
+        print('##############################')
+        end_struct_epoch = self.train_to_threshold(training_functions.structural_rng_step,
+                                                   struct_thresh, struct_cutoff, coefficients=[1,0], nan_check_ind=-4)
+        print('##############################')
+        print('#####', f'StSc {self.epoch:05d}', '#####')
+        print('##############################')
+        end_scaling_epoch = self.train_scaling_coef(training_functions.summation_rng_step,
+                                                    scaling_cutoff, 1, coefficients=[1,0], nan_check_ind=-1)
+        print('##############################')
+        print('#####', f'Scld {self.epoch:05d}', '#####')
+        print('##############################')
+        end_training_epoch = self.train_to_threshold(training_functions.summation_rng_step,
+                                                     final_thresh, final_cutoff, coefficients=[1, 1], nan_check_ind=-1)
+        print('##############################')
+        print('#####', f'Done {self.epoch:05d}', '#####')
+        print('##############################')
