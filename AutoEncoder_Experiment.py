@@ -325,9 +325,9 @@ class AutoEncoder_Experiment():
             if self.epoch % freq == 0:
                 #A small part that hard codes which is which
                 if scaling_coef_ind == 0:
-                    proposed_coef = (self.rmsd_loss[0][-1] / self.tors_loss[0][-1])
+                    prop_coef = (np.mean(self.rmsd_loss[0][-10:]) / np.mean(self.tors_loss[0][-10:]))
                 elif scaling_coef_ind == 1:
-                    proposed_coef = (self.rmsd_loss[0][-1] / self.pot_enr_loss[0][-1])
+                    prop_coef = (np.mean(self.rmsd_loss[0][-10:]) / np.mean(self.pot_enr_loss[0][-10:]))
                 #Propose next coefficient
                 coefficients[scaling_coef_ind] = np.min((1, np.max((coefficients[scaling_coef_ind], proposed_coef))))
                 

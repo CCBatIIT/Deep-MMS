@@ -19,4 +19,4 @@ conda activate jax_GPU_env
 
 cd $SLURM_SUBMIT_DIR
 
-python run.py $1 25000
+python run_torsional_only.py $1 25000

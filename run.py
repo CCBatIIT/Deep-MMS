@@ -16,6 +16,9 @@ with open(json_fn, 'r') as g:
 experiment = AutoEncoder_Experiment(json_fn)
 
 #Try training n_epochs on the structural loss function
-experiment.train_nepochs(tf.structural_rng_step, 100, coefficients=[1,0])
-experiment.train_scaling_coef(tf.summation_rng_step, 5000, 1, coefficients=[1,0])
-experiment.write_decoded_traj()
+experiment.train_nepochs(tf.structural_rng_step, 500, coefficients=[1,0])
+experiment.write_decoded_traj(idfn='Struct100')
+experiment.train_scaling_coef(tf.summation_rng_step, 10000, 1, coefficients=[1,0])
+experiment.write_decoded_traj(idfn='End_Scaling')
+experiment.train_threshold(tf.summation_rng_step, 25000, 0.1)
+experiment.write_decoded_traj(idfn='ThreshRCHD')
