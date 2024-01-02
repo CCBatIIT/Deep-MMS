@@ -1,6 +1,12 @@
 # Deep-MMS
 Repository for construction of JAX/FLAX neural networks which are applied to the mapping of molecular mechanics ensembles.
 
+The latest version of the visualization after perturbation :
+visualize how does the perturbed *Value* affect final decoding. (Red = added 0.5, light red = subtract 0.5)
+<img width="864" alt="image" src="https://github.com/CCBatIIT/Deep-MMS/assets/125150205/c797f60c-ec26-4d88-923c-15d21769331d">
+
+The first version of the visualization after perturbation: 
+visualize how does the perturbed *Latents* affect final decoding.
 <img width="853" alt="modelLframe1" src="https://github.com/CCBatIIT/Deep-MMS/assets/125150205/d1420725-2ef5-44f0-9385-15b2f9e7402b">
 
 The branch focuses on Visualization aspect.
