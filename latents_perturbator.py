@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import jax
 
+@jax.jit
 def perturb_single_latent(orig_latents, perturb_value=-0.5, perturb_latent=0):
     """
     Perturb the specified latent column in the input latents.
@@ -17,6 +19,7 @@ def perturb_single_latent(orig_latents, perturb_value=-0.5, perturb_latent=0):
     pert_latents[:, perturb_latent].add(perturb_value)
     return pert_latents
 
+@jax.jit
 def perturb_all_latents(orig_latents, perturb_values):
     """
     Perturb all latent columns in the input latents. Distinct value can be chosen for each latents
@@ -98,7 +101,6 @@ def plot_mean_displacement(displacement_vectors):
         plt.xlabel('Atom Index')
         plt.show()
 
-
 # Example usage:
 #   orig_latents = jnp.array(recon[1])
 #   pert_latents = perturb_single_latent(orig_latents, perturb_value=-0.5, perturb_latent=0)
@@ -108,8 +110,8 @@ def plot_mean_displacement(displacement_vectors):
 
 #   orig_decoded = ...
 #   pert_decoded = ...
-#   displacement_vectors = calculate_displacement_vectors(orig_decoded, pert_decoded)
 
+#   displacement_vectors = calculate_displacement_vectors(orig_decoded, pert_decoded)
 #   frame_max = find_frame_with_max_displacement(displacement_vectors)
 #   frame_min = find_frame_with_min_displacement(displacement_vectors)
 #   plot_mean_displacement(displacement_vectors)
