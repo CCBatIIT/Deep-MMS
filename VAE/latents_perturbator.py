@@ -2,6 +2,25 @@ import numpy as np
 import matplotlib.pyplot as plt
 import jax
 
+#########################################
+#
+#   Written by Timo Srinarmwong. github.com/tsrinarmwong Created 01/31/2024       
+#
+#       This is a methods file for latents perturbation used in VAE research
+#         project with Joseph DePaolo-Boisvert, Dr.David Minh
+#      
+#    Functions list:
+#        perturb_single_latent(orig_latents, perturb_value=-0.5, perturb_latent=0)
+#        perturb_all_latents(orig_latents, perturb_values)
+#        calculate_displacement_vectors(orig_decoded, pert_decoded)
+#        find_frame_with_max_displacement(displacement_vectors)
+#        find_frame_with_min_displacement(displacement_vectors)
+#        plot_mean_displacement(displacement_vectors)
+#
+#        Example usage at the end of file
+# 
+########################################
+    
 @jax.jit
 def perturb_single_latent(orig_latents, perturb_value=-0.5, perturb_latent=0):
     """
