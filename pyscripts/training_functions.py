@@ -129,4 +129,3 @@ def summation_rng_step(state, batch_x, z_rng, **kwargs):
         return summation_loss(batch_x, decoded_x, **kwargs)
     grads = jax.grad(loss_fn)(state.params, state.apply_fn)
     return state.apply_gradients(grads=grads), loss_fn(state.params, state.apply_fn)
-

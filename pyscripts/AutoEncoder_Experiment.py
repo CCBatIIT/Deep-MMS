@@ -1,8 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
-
 import jax, optax, orbax, sys, os, json, pickle, training_functions, glob
 from NN_models import *
+
 import jax.numpy as jnp
 import jax_amber3 as jaa
 
@@ -14,7 +14,17 @@ import mdtraj as md
 
 class AutoEncoder_Experiment():
     def __init__(self, json_fn, run_main=False):
-        """Rewrite Deprecated Docstring"""
+        """
+        THIS DOCSTRING REQUIRES EDITING
+        
+        n_latents: int: number of latent dimensions
+        coord_set: jnp.array(): data from which both test and train set will be derived
+        test_slice: int in (0,1,2,3,4): which 80/20 slice of coord_set to take for test and train
+        data_dir: string: directory (with trailing slash) in which to store all output data, images, etc.
+        batch_size: int: default 400; number of frames in a training batch
+        learning_rate: float: default 1e-4; optax adam learning rate
+        dropout_rates: list of floats: encoder and decoder dropout rates forward for encoder and reverse for decoder
+        """
         
         #Get the information from the json file
         with open(json_fn, 'r') as g:
@@ -61,7 +71,7 @@ class AutoEncoder_Experiment():
         c = md.load(fname_dcd, top=fname_prmtop)
         c = c.superpose(c) # FEED IN ALIGNED DATA
         coord_set = jnp.array(c.xyz.reshape(c.xyz.shape[0], -1))[data_start:data_end] # reshape to be n_conf, 3*n_atom 
-
+        
         #Get information about input data
         num_samples, input_size = coord_set.shape
 
@@ -203,6 +213,7 @@ class AutoEncoder_Experiment():
         np.save(os.path.join(self.data_dir, f'{self.model_name}{self.n_latents:02d}_lambdas_{self.epoch:06d}.npy'), np.array(self.potential_coefficients))
         #Betas (torsion)
         np.save(os.path.join(self.data_dir, f'{self.model_name}{self.n_latents:02d}_lambdas_{self.epoch:06d}.npy'), np.array(self.torsional_coefficients))
+
 
     def eval_batches(self, batch_set, eval_function, **kwargs):
         vals = []
