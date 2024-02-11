@@ -1,0 +1,38 @@
+{
+    "files" : {
+        "fname_dcd" : "/media/volume/sdb/githubs/Deep-MMS/Simulation/small_test.dcd",
+        "fname_prmtop" : "/media/volume/sdb/githubs/Deep-MMS/Simulation/ala_deca_peptide.prmtop",
+        "save_dir" : "/media/volume/sdb/githubs/Deep-MMS/",
+        "data_dir" : "None"
+    },
+    "training" : {
+        "epoch" : {
+            "num_init_epochs" : 100,
+            "struct_cutoff" : 1000,
+            "scaling_cutoff": 5000,
+            "max_epoch" : 10000},
+        "arch" : {
+            "latent_dim" : 7,
+            "batch_size" : 200,
+            "learning_rate" : 1e-05,
+            "rng_key" : 23706,
+            "dropout_rates" : [0.1, 0.3, 0.2, 0, 0],
+            "hidden_layers" : [300, 300, 200, 100, 50]},
+        "data" : {
+            "test_slice": 4,
+            "data_slice_start": 0,
+            "data_slice_end": "None"},
+        "thresh" : {
+            "structural_go_to_scaling" : 1.0,
+            "final_to_end" : 1.0}
+    },
+    "model" : {
+        "model_name": "DA_A.1",
+        "model_type": "AE_Sigmoid_Dropout",
+        "model_class": "Sigmoid_Dropout_AutoEncoder"
+    },
+    "restraint" : {
+        "restrained_run" : true ,
+        "restrained_atom_indices" : [4, 96]
+    }
+}
