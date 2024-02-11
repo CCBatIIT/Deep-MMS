@@ -42,22 +42,51 @@ def summation_loss(a, b, torsional_coefficient, potential_coefficient, **kwargs)
     """A loss function incorporating RMSD, RMTD, and potential deviation"""
     return structural_loss(a, b, torsional_coefficient=torsional_coefficient) + potential_coefficient * scaled_pot_enr_diff(a, b).mean()
 
-#General Step functions (in development)
-@jax.jit
-def general_step(state, batch, loss_fn, **kwargs):
-    def loss(params, apply_fn):
-        decoded, latents = apply_fn({'params':params}, batch)
-        return loss_fn(batch, decoded)
-    grads = jax.grad(loss)(state.params, state.apply_fn)
-    return state.apply_gradients(grads=grads)
+#Repulsion
+def rmsd_one_off(a, b):
+    """A distance function where A is one particle, and B is a set of particles (A = (3*natom), B = (n_conf>1, 3*natom))"""
+    rmsd = jnp.sqrt(jnp.mean((b - a)**2 + (b - a)**2 + (b - a)**2))
+    return rmsd
+
+def rmtd_one_off(a, b):
+    """Where A, and B are torsional particles, analogously defined as in rmsd one off"""
+    rmtd = jnp.sqrt(jnp.mean(1 - jnp.cos(b-a)))
+    return rmtd
+
+rmsd_one_off = jax.vmap(rmsd_one_off, in_axes=(None, 0))
+rmtd_one_off = jax.vmap(rmtd_one_off, in_axes=(None, 0))
 
 @jax.jit
-def general_rng_step(state, batch, loss_fn, z_rng, **kwargs):
-    def loss(params, apply_fn):
-        decoded, latents = apply_fn({'params':params}, batch, z_rng)
-        return loss_fn(batch, decoded, **kwargs)
-    grads = jax.grad(loss)(state.params, state.apply_fn)
-    return state.apply_gradients(grads=grads)
+def rmsd_distance_matrix(a, b):
+    rmsd = jnp.zeros((a.shape[0], b.shape[0]))
+    for i in range(a.shape[0]):
+        #print(i)
+        rmsd = rmsd.at[i,:].set(rmsd_one_off(a[i],b))
+    return rmsd
+
+@jax.jit
+def rmtd_distance_matrix(a, b):
+    rmtd = jnp.zeros((a.shape[0], b.shape[0]))
+    for i in range(a.shape[0]):
+        #print(i)
+        rmtd = rmtd.at[i,:].set(rmtd_one_off(a[i],b))
+    return rmtd
+
+@jax.jit
+def structural_distance_matrix(a, b):
+    tors_a, tors_b = torsion_fun(a), torsion_fun(b)
+    return rmsd_distance_matrix(a, b) + rmtd_distance_matrix(tors_a, tors_b)
+
+#General Step functions (in development)
+def establish_step_function(state, batch, loss_func, method='mean'):
+    @jax.jit
+    def custom_step(state, batch, loss_fn, **kwargs):
+        def loss(params, apply_fn):
+            decoded, latents = apply_fn({'params':params}, batch, z_rng)
+            return loss_fn(batch, decoded, **kwargs)
+        grads = jax.grad(loss)(state.params, state.apply_fn)
+        return state.apply_gradients(grads=grads)
+    return custom_step
 
 
 #Steps with rng
