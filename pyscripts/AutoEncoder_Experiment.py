@@ -1,16 +1,17 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import jax, optax, orbax, sys, os, json, pickle, training_functions, glob
-from NN_models import *
-
+import jax, optax, orbax, sys, os, json, pickle, glob
+from . import training_functions
+from .NN_models import *
+from . import jax_amber3 as jaa
 import jax.numpy as jnp
-import jax_amber3 as jaa
-
+import flax
 from flax import linen as nn
 from flax.training import train_state, orbax_utils
 from flax.serialization import from_state_dict, to_state_dict
 
 import mdtraj as md
+
 
 class AutoEncoder_Experiment():
     def __init__(self, json_fn, run_main=False):
@@ -34,17 +35,26 @@ class AutoEncoder_Experiment():
         fname_dcd = self.json_params["files"]["fname_dcd"]
         fname_prmtop = self.json_params["files"]["fname_prmtop"]
         save_dir = self.json_params["files"]["save_dir"]
+
+        #Check that the prmtop provided is the same as in training_functions.py
+        # (by checking if the numbers of atoms are equivalent)
+        num_atoms_json = len(jaa.prm_get_atom_types(jaa.amber_prmtop_load(fname_prmtop)))
+        num_atoms_tf = training_functions.report_num_atoms()
+        if num_atoms_json != num_atoms_tf:
+            raise Exception("Atoms Unequivalent!  Check that the prmtop in training_functions.py matches that in the json input")
         
         #Model
         self.model_name = self.json_params["model"]["model_name"]
         self.model_type = self.json_params["model"]["model_type"]
         self.model_class = self.json_params["model"]["model_class"]
         
-        #Training
+        #Training & Architecture
         self.n_latents = self.json_params["training"]["arch"]["latent_dim"]
+        activators = self.json_params["training"]["arch"]["activators"]
+        layer_ops = self.json_params["training"]["arch"]["layer_ops"]
+        dropout_rates = self.json_params["training"]["arch"]["dropout_rates"]
         batch_size = self.json_params["training"]["arch"]["batch_size"]
         learning_rate = self.json_params["training"]["arch"]["learning_rate"]
-        dropout_rates = self.json_params["training"]["arch"]["dropout_rates"]
         test_slice = self.json_params["training"]["data"]["test_slice"]
         rng_key = self.json_params["training"]["arch"]["rng_key"]
         data_start, data_end = self.json_params["training"]["data"]["data_slice_start"], self.json_params["training"]["data"]["data_slice_end"]
@@ -53,6 +63,7 @@ class AutoEncoder_Experiment():
         model_dir = os.path.join(save_dir, f'{self.model_name}/')
         if not os.path.isdir(model_dir):
             os.mkdir(model_dir)
+        
         #Establish Data Directory
         if self.json_params["files"]["data_dir"] == 'None':
             latent_dir = os.path.join(model_dir, f'{self.n_latents:02d}_latents/')
@@ -67,16 +78,15 @@ class AutoEncoder_Experiment():
         #Get Data to train on
         if data_end == 'None':
             data_end = None
+        
         #Load and Align
         c = md.load(fname_dcd, top=fname_prmtop)
         c = c.superpose(c) # FEED IN ALIGNED DATA
         coord_set = jnp.array(c.xyz.reshape(c.xyz.shape[0], -1))[data_start:data_end] # reshape to be n_conf, 3*n_atom 
-        
-        #Get information about input data
         num_samples, input_size = coord_set.shape
 
         #Make Hidden Layers
-        if self.json_params["training"]["arch"]["hidden_layers"] != "None":
+        if self.json_params["training"]["arch"]["hidden_layers"] != "Auto":
             hidden_layers = self.json_params["training"]["arch"]["hidden_layers"]
         else:
             hidden_layers = [input_size]*3
@@ -90,8 +100,11 @@ class AutoEncoder_Experiment():
         
         #Initialize Model
         print(f'### MODEL TYPE = {self.model_type} ###')
-        self.model = globals()[self.model_class](input_size=input_size, n_latents=self.n_latents,
-                                                 hidden_layers=hidden_layers, dropout_rates=dropout_rates)
+        activators = [eval(activator) for activator in activators]
+        layer_ops = [eval(layer_op) for layer_op in layer_ops]
+        self.model = AutoEncoder(input_size=input_size, n_latents=self.n_latents,
+                                 hidden_layers=hidden_layers, activators=activators,
+                                 layer_ops=layer_ops, dropout_rates=dropout_rates)
         rng_init = jax.random.PRNGKey(rng_key)
         rng, key = jax.random.split(rng_init)
         self.state = train_state.TrainState.create(apply_fn=self.model.apply,

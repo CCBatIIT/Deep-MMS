@@ -1,9 +1,19 @@
 import jax, os
-import jax_amber3 as jaa
+from . import jax_amber3 as jaa
 import jax.numpy as jnp
 
-fname_prmtop = os.path.join(os.getcwd(), 'Simulation/ala_deca_peptide.prmtop')
+fname_prmtop = os.path.join(os.getcwd(), 'Simulation/1crn_H.prmtop')
 ener_fun, tors_fun = jaa.get_amber_functions(fname_prmtop)
+
+#CHECK
+def report_num_atoms():
+    """
+    This function exists as a sanity check.  There will be no errors if the
+    prmtop in this file is different than that in the json.  This function
+    is used to report the number of atoms in fname_prmtop, in order to check
+    that there is an equivalent number of atoms in the prmtop from the json file
+    """
+    return len(jaa.prm_get_atom_types(jaa.amber_prmtop_load(fname_prmtop)))
 
 #Maths
 @jax.vmap
@@ -87,7 +97,6 @@ def establish_step_function(state, batch, loss_func, method='mean'):
         grads = jax.grad(loss)(state.params, state.apply_fn)
         return state.apply_gradients(grads=grads)
     return custom_step
-
 
 #Steps with rng
 @jax.jit

@@ -1,7 +1,7 @@
 {
     "files" : {
-        "fname_dcd" : "/media/volume/sdb/githubs/Deep-MMS/Simulation/decaalanine_1us_split3.dcd",
-        "fname_prmtop" : "/media/volume/sdb/githubs/Deep-MMS/Simulation/ala_deca_peptide.prmtop",
+        "fname_dcd" : "/media/volume/sdb/githubs/Deep-MMS/Simulation/1crn_H_1us_FULL.dcd",
+        "fname_prmtop" : "/media/volume/sdb/githubs/Deep-MMS/Simulation/1crn_H.prmtop",
         "save_dir" : "/media/volume/sdb/githubs/Deep-MMS/",
         "data_dir" : "None"
     },
@@ -14,14 +14,16 @@
         "arch" : {
             "latent_dim" : 7,
             "batch_size" : 200,
-            "learning_rate" : 1e-05,
-            "rng_key" : 22389,
-            "dropout_rates" : [0.3, 0.3, 0.3],
-            "hidden_layers" : [306, 306, 306]},
+            "learning_rate" : 1e-04,
+            "rng_key" : 28489,
+            "dropout_rates" : [0.2, 0.2, 0.2],
+            "hidden_layers" : "Auto",
+            "layer_ops" : ["flax.linen.Dense", "flax.linen.Dense", "flax.linen.Dense", "flax.linen.Dense"],
+            "activators" : ["flax.linen.relu", "flax.linen.relu", "flax.linen.relu", "flax.linen.relu"]},
         "data" : {
             "test_slice": 2,
-            "data_slice_start": 0,
-            "data_slice_end": "None"},
+            "data_slice_start": 10000,
+            "data_slice_end": 20000},
         "thresh" : {
             "structural_go_to_scaling" : 1.0,
             "final_to_end" : 1.0}
@@ -32,7 +34,7 @@
         "model_class": "ACS_AutoEncoder"
     },
     "restraint" : {
-        "restrained_run" : true ,
+        "restrained_run" : false ,
         "restrained_atom_indices" : [4, 96]
     }
 }

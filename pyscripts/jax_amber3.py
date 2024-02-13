@@ -445,7 +445,7 @@ def get_amber_functions(fname_prmtop):
     @jax.vmap
     def gas_energy_function(R):
         """
-        Provide n_conf, flattened_coords.  Read this code as R=one frame        
+        Provide n_conf, flattened_coords.  Read this code as R=one frame, as it is vmapped        
         """
         #print(R.shape)
         R = R.reshape(-1,3)
@@ -457,7 +457,7 @@ def get_amber_functions(fname_prmtop):
     @jax.vmap
     def torsional_values(R):
         """
-        Provide n_conf, flattened_coords.  Read this code as R=one frame        
+        Provide n_conf, flattened_coords.  Read this code as R=one frame, as it is vmapped
         """
         #print(R.shape)
         R = R.reshape(-1,3)
