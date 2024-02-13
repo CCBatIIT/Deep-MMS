@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import jax, optax, orbax, sys, os, json, pickle, glob
-from . import training_functions
+from .training_functions import Maths
 from .NN_models import *
 from . import jax_amber3 as jaa
 import jax.numpy as jnp
@@ -14,7 +14,7 @@ import mdtraj as md
 
 
 class AutoEncoder_Experiment():
-    def __init__(self, json_fn, run_main=False):
+    def __init__(self, json_fn):
         """
         THIS DOCSTRING REQUIRES EDITING
         
@@ -35,18 +35,11 @@ class AutoEncoder_Experiment():
         fname_dcd = self.json_params["files"]["fname_dcd"]
         fname_prmtop = self.json_params["files"]["fname_prmtop"]
         save_dir = self.json_params["files"]["save_dir"]
-
-        #Check that the prmtop provided is the same as in training_functions.py
-        # (by checking if the numbers of atoms are equivalent)
-        num_atoms_json = len(jaa.prm_get_atom_types(jaa.amber_prmtop_load(fname_prmtop)))
-        num_atoms_tf = training_functions.report_num_atoms()
-        if num_atoms_json != num_atoms_tf:
-            raise Exception("Atoms Unequivalent!  Check that the prmtop in training_functions.py matches that in the json input")
+        self.math = Maths(fname_prmtop)
         
         #Model
         self.model_name = self.json_params["model"]["model_name"]
         self.model_type = self.json_params["model"]["model_type"]
-        self.model_class = self.json_params["model"]["model_class"]
         
         #Training & Architecture
         self.n_latents = self.json_params["training"]["arch"]["latent_dim"]
@@ -105,6 +98,7 @@ class AutoEncoder_Experiment():
         self.model = AutoEncoder(input_size=input_size, n_latents=self.n_latents,
                                  hidden_layers=hidden_layers, activators=activators,
                                  layer_ops=layer_ops, dropout_rates=dropout_rates)
+        
         rng_init = jax.random.PRNGKey(rng_key)
         rng, key = jax.random.split(rng_init)
         self.state = train_state.TrainState.create(apply_fn=self.model.apply,
@@ -140,26 +134,7 @@ class AutoEncoder_Experiment():
         print("#####     Initializing Done!     #####")
         print(self.model)
         print("######################################")
-
-        if run_main:
-            print('Main Invoked with the following params:')
-            num_init_epochs = self.json_params["training"]["epoch"]["num_init_epochs"]
-            struct_cutoff = self.json_params["training"]["epoch"]["struct_cutoff"]
-            scaling_cutoff = self.json_params["training"]["epoch"]["scaling_cutoff"]
-            final_cutoff = self.json_params["training"]["epoch"]["max_epoch"]
-            
-            struct_thresh = self.json_params["training"]["thresh"]["structural_go_to_scaling"]
-            final_thresh = self.json_params["training"]["thresh"]["final_to_end"]
-
-            print(f"Epochs - Init: {num_init_epochs}, Struct: {struct_cutoff}, Scale: {scaling_cutoff}, Final {final_cutoff}")
-            print(f"Threshholds - Struct {struct_thresh}, Final {final_thresh}")
-            self.main_train(num_init_epochs,
-                            struct_thresh, struct_cutoff,
-                            scaling_cutoff,
-                            final_thresh, final_cutoff)
-            
         
-
     def write_model_to_ckpt(self, ckpt_fn=None):
         if ckpt_fn is None:
             ckpt_fn = os.path.join(self.data_dir, f'model_ckpt_{self.epoch:06d}.pkl')
@@ -224,39 +199,33 @@ class AutoEncoder_Experiment():
             np.save(os.path.join(self.data_dir, f'{self.model_name}{self.n_latents:02d}_{loss_names.pop(0)}_{self.epoch:06d}.npy'), np.array(arr))
         #LAMBDAS (potential)
         np.save(os.path.join(self.data_dir, f'{self.model_name}{self.n_latents:02d}_lambdas_{self.epoch:06d}.npy'), np.array(self.potential_coefficients))
-        #Betas (torsion)
-        np.save(os.path.join(self.data_dir, f'{self.model_name}{self.n_latents:02d}_lambdas_{self.epoch:06d}.npy'), np.array(self.torsional_coefficients))
-
 
     def eval_batches(self, batch_set, eval_function, **kwargs):
         vals = []
         f = iter(batch_set)
-
         for i in range(batch_set.num_batches):
             #Get Batch
             batch = next(f)
-            recon = self.reconstruct(batch, self.epoch)[0]
+            decoded, latents = self.reconstruct(batch, self.epoch)
             #Eval Batch
-            vals.append(eval_function(batch, recon, **kwargs))
-
+            vals.append(eval_function(batch, decoded, **kwargs))
         vals = jnp.array(vals)
         return vals.flatten()
 
     def eval_losses(self, **kwargs):
-        self.rmsd_loss[0].append(self.eval_batches(self.train_batches, training_functions.atom_rmsd).mean())
-        self.rmsd_loss[1].append(self.eval_batches(self.test_batches, training_functions.atom_rmsd).mean())
+        self.rmsd_loss[0].append(self.eval_batches(self.train_batches, self.math.atom_rmsd).mean())
+        self.rmsd_loss[1].append(self.eval_batches(self.test_batches, self.math.atom_rmsd).mean())
 
-        self.tors_loss[0].append(self.eval_batches(self.train_batches, training_functions.atom_rmtd).mean())
-        self.tors_loss[1].append(self.eval_batches(self.test_batches, training_functions.atom_rmtd).mean())
+        self.tors_loss[0].append(self.eval_batches(self.train_batches, self.math.atom_rmtd).mean())
+        self.tors_loss[1].append(self.eval_batches(self.test_batches, self.math.atom_rmtd).mean())
         
-        self.pot_enr_loss[0].append(self.eval_batches(self.train_batches, training_functions.scaled_pot_enr_diff).mean())
-        self.pot_enr_loss[1].append(self.eval_batches(self.test_batches, training_functions.scaled_pot_enr_diff).mean())
+        self.pot_enr_loss[0].append(self.eval_batches(self.train_batches, self.math.scaled_pot_enr_diff).mean())
+        self.pot_enr_loss[1].append(self.eval_batches(self.test_batches, self.math.scaled_pot_enr_diff).mean())
 
-        self.summ_loss[0].append(self.eval_batches(self.train_batches, training_functions.summation_loss, **kwargs).mean())
-        self.summ_loss[1].append(self.eval_batches(self.test_batches, training_functions.summation_loss, **kwargs).mean())
+        self.summ_loss[0].append(self.eval_batches(self.train_batches, self.math.summation_distance, **kwargs).mean())
+        self.summ_loss[1].append(self.eval_batches(self.test_batches, self.math.summation_distance, **kwargs).mean())
 
         self.potential_coefficients.append(kwargs["potential_coefficient"])
-        self.torsional_coefficients.append(kwargs["torsional_coefficient"])
 
         most_recent_results = jnp.array((self.rmsd_loss[0][-1], self.rmsd_loss[1][-1],
                                self.tors_loss[0][-1], self.tors_loss[1][-1],
@@ -266,20 +235,14 @@ class AutoEncoder_Experiment():
         return most_recent_results
 
 
-    def report_last_losses(self, torsional_coefficient, potential_coefficient):
+    def report_last_losses(self, potential_coefficient):
         #Evaluate and Record
-        last_losses = self.eval_losses(torsional_coefficient=torsional_coefficient, potential_coefficient=potential_coefficient)
+        last_losses = self.eval_losses(potential_coefficient=potential_coefficient)
         #Report Loss Values
         print(self.epoch, '%.4E'%last_losses[0], '%.4E'%last_losses[1],
               '%.4E'%last_losses[2], '%.4E'%last_losses[3], '%.4E'%last_losses[4],
               '%.4E'%last_losses[5], '%.4E'%last_losses[6], '%.4E'%last_losses[7],
-              'B=%.4E'%torsional_coefficient, 'L=%.4E'%potential_coefficient)
-        #print('epoch', self.epoch, 'atom_rmsd_nm', '%.4E'%last_losses[0], '%.4E'%last_losses[1],
-        #      'torsional', '%.4E'%last_losses[2], '%.4E'%last_losses[3],
-        #      'dPotEnr', '%.4E'%last_losses[4], '%.4E'%last_losses[5],
-        #      'Summation', '%.4E'%last_losses[6], '%.4E'%last_losses[7],
-        #      'B=%.4E'%torsional_coefficient, 'L=%.4E'%potential_coefficient)
-        #Run an NAN check
+              'L=%.4E'%potential_coefficient)
         NAN_check = jnp.isnan(last_losses)
         return NAN_check
 
@@ -302,11 +265,10 @@ class AutoEncoder_Experiment():
         self.checkpoint_manager.save(self.epoch, self.state, save_kwargs={'save_args': save_args})
         return np.array(loss_vals).mean()
 
-    def post_epoch(self, coefficients, nan_check_ind=-1):
+    def post_epoch(self, potential_coefficient, nan_check_ind=-1):
         """Things that happen after every epoch, no matter the loss_function"""
         #Record losses and run NAN check
-        torsional_coefficient, potential_coefficient = coefficients
-        nan_check = self.report_last_losses(torsional_coefficient, potential_coefficient)[:nan_check_ind]
+        nan_check = self.report_last_losses(potential_coefficient)[:nan_check_ind]
         isNAN_check = True in nan_check
         if isNAN_check:
             print("NAN is no-bueno")
@@ -318,72 +280,43 @@ class AutoEncoder_Experiment():
         #iterate the epoch
         self.epoch += 1
         
-    def train_nepochs(self, step_fun, num_epochs, coefficients=[0, 0], nan_check_ind=-1):
-        """Choose a parameter to test the loss of step_fun
-        step_fun = instance of training function that you would like to use
-        (Recently Adjusted to actually go n_epochs, not up to the given epoch)
-        Example: Train 100 epochs on RMSD and torsion, with B=0.5 and L=0
-            train_nepochs(training_functions.rmsd_rng_step, 100, coefficients=(0.5, 0))
-        """
-        torsional_coefficient, potential_coefficient = coefficients
+    def train_nepochs(self, loss_metric, averaging_method, num_epochs, potential_coefficient=0, nan_check_ind=-1):
+        step_fun = self.math.make_step_function(loss_metric, averaging_method)
         for i in range(num_epochs):
             #Training
-            loss_this_epoch = self.train_batches_on_step(self.train_batches, step_fun,
-                                                         torsional_coefficient=torsional_coefficient,
-                                                         potential_coefficient=potential_coefficient)
+            loss_this_epoch = self.train_batches_on_step(self.train_batches, step_fun, potential_coefficient=potential_coefficient)
             #After all batches seen this epoch
-            self.post_epoch(coefficients, nan_check_ind)
-            
+            self.post_epoch(potential_coefficient, nan_check_ind)
         return self.epoch
 
-    def train_scaling_coef(self, step_fun, cutoff_epoch, scaling_coef_ind, freq=10, coefficients=[0, 0], nan_check_ind=-1):
-        """
-        Scale the torsion with scaling_coef_ind 0 and the potential with scaling_coef_ind 1
-        Typically the potential must be scaled, not the torsion 
-        Typical Usage - self.train_scaling_coef(training_functions.summation_rng_step, X, 1, coefficients=[1,0])
-        """
-        assert scaling_coef_ind in [0, 1]
+    def train_scaling_coef(self, loss_metric, averaging_method, cutoff_epoch, init_potential_coef=0, freq=10, nan_check_ind=-1):
+        step_fun = self.math.make_step_function(loss_metric, averaging_method)
+        potential_coefficient = init_potential_coef
         # Every ten epochs choose lambda as min(1, max(lambda[-1], RMSD/NSD))
-        while coefficients[scaling_coef_ind] != 1 and self.epoch < cutoff_epoch:
+        while potential_coefficient != 1 and self.epoch < cutoff_epoch:
             # Sometime check to see if coef can be larger
             if self.epoch % freq == 0:
                 #A small part that hard codes which is which
-                if scaling_coef_ind == 0:
-                    prop_coef = (np.mean(self.rmsd_loss[0][-10:]) / np.mean(self.tors_loss[0][-10:]))
-                elif scaling_coef_ind == 1:
-                    prop_coef = (np.mean(self.rmsd_loss[0][-10:]) / np.mean(self.pot_enr_loss[0][-10:]))
+                proposed_coef = (np.mean(self.rmsd_loss[0][-10:]) / np.mean(self.pot_enr_loss[0][-10:]))
                 #Propose next coefficient
-                coefficients[scaling_coef_ind] = np.min((1, np.max((coefficients[scaling_coef_ind], proposed_coef))))
-                
+                potential_coefficient = np.min((1, np.max((potential_coefficient, proposed_coef))))
             # Training
-            loss_this_epoch = self.train_batches_on_step(self.train_batches, step_fun,
-                                                         torsional_coefficient=coefficients[0],
-                                                         potential_coefficient=coefficients[1])
+            loss_this_epoch = self.train_batches_on_step(self.train_batches, step_fun, potential_coefficient=potential_coefficient)
             #After all batches seen this epoch
-            self.post_epoch(coefficients, nan_check_ind)
-            
+            self.post_epoch(potential_coefficient, nan_check_ind)
         return self.epoch
 
-    def train_to_threshold(self, step_fun, threshold, cutoff_epoch, coefficients=[1, 1], nan_check_ind=-1):
-        """Train the NN on the given step_fun, until the value of that function is below threshold"""
-        
-        torsional_coefficient, potential_coefficient = coefficients
-        loss_this_epoch = 100 #something large just to start this loop, value is actually reported elsewhere
+    def train_to_threshold(self, loss_metric, averaging_method, threshold, cutoff_epoch, potential_coefficient=1, nan_check_ind=-1):
+        step_fun = self.math.make_step_function(loss_metric, averaging_method)
+        loss_this_epoch = 100 #something large just to start this loop, this is a ghost value
         while loss_this_epoch > threshold and self.epoch < cutoff_epoch:
-            #Training
-            loss_this_epoch = self.train_batches_on_step(self.train_batches, step_fun,
-                                                         torsional_coefficient=torsional_coefficient,
-                                                         potential_coefficient=potential_coefficient)
+            # Training
+            loss_this_epoch = self.train_batches_on_step(self.train_batches, step_fun, potential_coefficient=potential_coefficient)
             #After all batches seen this epoch
-            self.post_epoch(coefficients, nan_check_ind)
-            
+            self.post_epoch(potential_coefficient, nan_check_ind)
         return self.epoch
 
-    def run_main(self):
-        """ Run structural training with torsion in (first for 100 epoch, then until it reaches struct_thresh) until struct_cutoff
-            Followed by potential scaling (up to scaling_cutoff_epoch)
-            Followed by final training (training of full function to final_thresh)"""
-        
+    def main(self):
         print('Main Invoked with the following params:')
         num_init_epochs = self.json_params["training"]["epoch"]["num_init_epochs"]
         struct_cutoff = self.json_params["training"]["epoch"]["struct_cutoff"]
@@ -396,26 +329,32 @@ class AutoEncoder_Experiment():
         print(f"Epochs - Init: {num_init_epochs}, Struct: {struct_cutoff}, Scale: {scaling_cutoff}, Final {final_cutoff}")
         print(f"Threshholds - Struct {struct_thresh}, Final {final_thresh}")
         
+        #INIT EPOCHS
         print('##############################')
         print('#####', f'Init {self.epoch:05d}', '#####')
         print('##############################')
-        end_init_epoch = self.train_nepochs(training_functions.structural_rng_step,
-                                            num_init_epochs, coefficients=[1,0], nan_check_ind=-4)
+        end_init_epoch = self.train_nepochs(self.math.structural_distance, 'rmsd', num_init_epochs, nan_check_ind=-4)
+        
+        # REACH THRESHOLD BY STRUCTURE ALONE
         print('##############################')
         print('#####', f'Strt {self.epoch:05d}', '#####')
         print('##############################')
-        end_struct_epoch = self.train_to_threshold(training_functions.structural_rng_step,
-                                                   struct_thresh, struct_cutoff, coefficients=[1,0], nan_check_ind=-4)
+        end_struct_epoch = self.train_to_threshold(self.math.structural_distance, 'rmsd', struct_thresh,
+                                                   struct_cutoff, potential_coefficient=0, nan_check_ind=-4)
+        
+        # SCALE IN POTENTIAL ENERGY
         print('##############################')
         print('#####', f'StSc {self.epoch:05d}', '#####')
         print('##############################')
-        end_scaling_epoch = self.train_scaling_coef(training_functions.summation_rng_step,
-                                                    scaling_cutoff, 1, coefficients=[1,0], nan_check_ind=-1)
+        end_scaling_epoch = self.train_scaling_coef(self.math.summation_distance, 'rmsd', scaling_cutoff)
+
+        # REACH A THRESHOLD OF LOSS AGAIN
         print('##############################')
         print('#####', f'Scld {self.epoch:05d}', '#####')
         print('##############################')
-        end_training_epoch = self.train_to_threshold(training_functions.summation_rng_step,
-                                                     final_thresh, final_cutoff, coefficients=[1, 1], nan_check_ind=-1)
+        end_training_epoch = self.train_to_threshold(self.math.summation_distance, 'rmsd', final_thresh, final_cutoff)
+
+        # DONE REPORT THE LAST EPOCH
         print('##############################')
         print('#####', f'Done {self.epoch:05d}', '#####')
         print('##############################')
