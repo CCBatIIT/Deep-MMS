@@ -91,6 +91,20 @@ class Maths():
             return jnp.sqrt(jnp.mean((b[x_inds] - a[x_inds])**2 + (b[y_inds] - a[y_inds])**2 + (b[z_inds] - a[z_inds])**2))
         return inner(a, b)
     
+    def rmsd_one_off(self, a, b):
+        """A distance function where A is one particle, and B is a set of particles (A = (3*natom), B = (n_conf>1, 3*natom))"""
+        rmsd = jnp.sqrt(jnp.mean((b - a)**2 + (b - a)**2 + (b - a)**2))
+        return rmsd
+        
+    def rmsd_distance_matrix(self, a, b):
+        """
+        Where A and B are 2D arrays of positions (n_conf, 3*n_atom)
+        """
+        rmsd = jnp.zeros((a.shape[0], b.shape[0]))
+        for i in range(a.shape[0]):
+            rmsd = rmsd.at[i,:].set(self.rmsd_one_off(a[i],b))
+        return rmsd
+    
     def cos_torsional_dist(self, a, b, **kwargs):
         """For molecular sets, a, b
             returns 1/2 of the square of the L2 distance between two angles which are cast onto the unit circle.
@@ -102,25 +116,11 @@ class Maths():
         """Extension of cos_torsional_dist to calculat the RMTD (Root Mean Torsional Deviation)"""
         return jnp.sqrt(jnp.mean(self.cos_torsional_dist(a, b), axis=1)) #axis invoked here and not for rmSd because this function is not vmapped    
     
-    def rmsd_one_off(self, a, b):
-        """A distance function where A is one particle, and B is a set of particles (A = (3*natom), B = (n_conf>1, 3*natom))"""
-        rmsd = jnp.sqrt(jnp.mean((b - a)**2 + (b - a)**2 + (b - a)**2))
-        return rmsd
-        
     def rmtd_one_off(self, a, b):
         """Where A, and B are torsional particles, analogously defined as in rmsd one off"""
         rmtd = jnp.sqrt(jnp.mean(1 - jnp.cos(b-a)))
         return rmtd
 
-    def rmsd_distance_matrix(self, a, b):
-        """
-        Where A and B are 2D arrays of positions (n_conf, 3*n_atom)
-        """
-        rmsd = jnp.zeros((a.shape[0], b.shape[0]))
-        for i in range(a.shape[0]):
-            rmsd = rmsd.at[i,:].set(self.rmsd_one_off(a[i],b))
-        return rmsd
-    
     def rmtd_distance_matrix(self, a, b):
         """
         Where A and B are 2D arrays of positions (n_conf, 3*n_atom)
@@ -163,13 +163,13 @@ class Maths():
             potentials = potentials.at[i,:].set(self.simple_scaled_diff(a[i],b))
         return potentials
     
-    def summation_distance_matrix(self, a, b, potential_coefficient):
-        return self.rmsd_distance_matrix(a, b) + self.rmtd_distance_matrix(a, b) + potential_coefficient * self.potential_distance_matrix(a, b)
-        
     def summation_distance(self, a, b, potential_coefficient): # LET A BE BATCH AND B BE RECON
         """A loss function incorporating RMSD, RMTD, and potential deviation"""
         return self.structural_distance(a, b) + potential_coefficient * self.scaled_pot_enr_diff(a, b)
     
+    def summation_distance_matrix(self, a, b, potential_coefficient):
+        return self.rmsd_distance_matrix(a, b) + self.rmtd_distance_matrix(a, b) + potential_coefficient * self.potential_distance_matrix(a, b)
+        
     #General Step function
     def make_step_function(self, loss_metric, averaging_method):
         """
@@ -200,6 +200,37 @@ class Maths():
             grads = jax.grad(loss)(state.params, state.apply_fn)
             return state.apply_gradients(grads=grads), loss(state.params, state.apply_fn)
         return custom_step
+
+    #Repulsion
+    def make_gaussian_kernel(self, distance_matrix_metric, averaging_method, train_data, **kwargs):
+        """
+        Create a gaussian kernel function (of the form e^(-1*(distance_metric**2)/h))
+        Where distance metric is an elementwise distance matrix calculation (rmsd, rmtd, potential, etc)
+        h is chosen as the minimum (non-zero) distance between two particles
+        """
+        #determine h
+        matrix = distance_matrix_metric(train_data, train_data, **kwargs) #THIS LOOKS LIKE IT WILL TAKE A WHILE
+        bandwidth = jnp.min(matrix[jnp.where(matrix != 0))
+        
+        #make the kernel function
+        kernel = lambda x : jnp.exp(-1*(x**2)/bandwidth)
+        
+        # How to assemble matrix into loss
+        assert averaging_method in ['mean', 'rmsd']
+        if averaging_method == 'mean':
+            def average(vals):
+                return vals.mean()
+        elif averaging_method == 'rmsd':
+            def average(vals):
+                return jnp.sqrt(jnp.sum(vals**2)/vals.shape[0])
+        
+        @jax.jit
+        def repulsion_loss(particles):
+            matrix = distance_matrix_metric(particles, particles)
+            triu = jnp.triu(kernel(matrix), k=1)
+            return average(triu[jnp.where(triu != 0)])
+
+        return repulsion_loss
 
     #To Be Deprecated
     def rmsd_rng_step(self, state, batch, z_rng, **kwargs):

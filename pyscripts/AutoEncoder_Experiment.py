@@ -299,7 +299,7 @@ class AutoEncoder_Experiment():
                 #A small part that hard codes which is which
                 proposed_coef = (np.mean(self.rmsd_loss[0][-10:]) / np.mean(self.pot_enr_loss[0][-10:]))
                 #Propose next coefficient
-                potential_coefficient = np.min((1, np.max((potential_coefficient, proposed_coef))))
+                potential_coefficient = np.min((1, np.max((1.01*potential_coefficient, proposed_coef))))
             # Training
             loss_this_epoch = self.train_batches_on_step(self.train_batches, step_fun, potential_coefficient=potential_coefficient)
             #After all batches seen this epoch
