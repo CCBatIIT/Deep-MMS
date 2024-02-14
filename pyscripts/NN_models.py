@@ -50,14 +50,12 @@ class DataStream():
 class Encoder(nn.Module):
     '''
     Encoder module for a neural network.
-
     Args:
         d_hidden (list): List of hidden layer sizes.
         latent_size (int): Size of latent space.
         activators (list): List of activation functions for each layer.
         layer_ops (list): List of layer operations for each layer.
         dropout_rates (list): List of dropout rates for each layer.
-
     Returns:
         Encoded representation of the input.
 
@@ -72,10 +70,8 @@ class Encoder(nn.Module):
     def __call__(self, x): 
         '''
         Encodes the input data.
-
         Args:
             x: Input data.
-
         Returns:
             Latent representation of the input data.
 
@@ -89,14 +85,12 @@ class Encoder(nn.Module):
 class Decoder(nn.Module):
     '''
     Decoder module for a neural network.
-
     Args:
         d_hidden (list): List of hidden layer sizes.
         latent_size (int): Size of latent space.
         activators (list): List of activation functions for each layer.
         layer_ops (list): List of layer operations for each layer.
         dropout_rates (list): List of dropout rates for each layer.
-    
     Returns:
         Decoded representation of the output.
 
@@ -111,12 +105,10 @@ class Decoder(nn.Module):
     def __call__(self, z):
         '''
         Decodes the latent representation.
-
         Args:
             z: Latent representation.
-
         Returns:
-            Decoded output into original space.
+            Decoded latent representation into original space.
 
         '''
         for i in range(len(self.d_hidden))[::-1]:
@@ -128,7 +120,6 @@ class Decoder(nn.Module):
 class AutoEncoder(nn.Module):
     '''
     Autoencoder neural network model, composed of both an encoder and decoder.
-
     Args:
         input_size (int): Size of the input data.
         n_latents (int): Size of the latent space.
@@ -136,12 +127,10 @@ class AutoEncoder(nn.Module):
         activators (list): List of activation functions for each layer.
         layer_ops (list): List of layer operations for each layer.
         dropout_rates (list): List of dropout rates for each layer.
-
     Methods:
         setup(): Initializes the encoder and decoder modules.
         __call__(x, z_rng): Encodes the input data and then decodes it back to the original space.
         decode(z, z_rng): Decodes the latent representation back to the original space.
-
     Example:
         autoencoder = AutoEncoder(**args**)
         output, latent_representation = autoencoder(input_data, z_rng)
@@ -173,10 +162,11 @@ class AutoEncoder(nn.Module):
     def decode(self, z, z_rng):
         '''
         Decodes the latent representation back to the original space.
-
         Args:
             z: Latent representation.
             z_rng: Random number generator.
+        Returns:
+            Decoded output of the latent representation.
 
         '''
         return self.decoder(z)
