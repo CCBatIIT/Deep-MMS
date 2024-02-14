@@ -10,7 +10,7 @@ import jax
 #         project with Joseph DePaolo-Boisvert, Dr.David Minh
 #      
 #    Functions list:
-#        perturb_single_latent(orig_latents, perturb_value=-0.5, perturb_latent=0)
+#        perturb_single_latent(orig_latents, perturb_value=-0.5, latent_target=0, perturb_method=1):
 #        perturb_all_latents(orig_latents, perturb_values)
 #        calculate_displacement_vectors(orig_decoded, pert_decoded)
 #        find_frame_with_max_displacement(displacement_vectors)
@@ -20,22 +20,32 @@ import jax
 #        Example usage at the end of file
 # 
 ########################################
-    
+
 @jax.jit
-def perturb_single_latent(orig_latents, perturb_value=-0.5, perturb_latent=0):
+def perturb_single_latent(orig_latents, perturb_value, latent_target, perturb_method):
     """
     Perturb the specified latent column in the input latents.
 
     Parameters:
     - orig_latents: Original latent array.
     - perturb_value: Value to perturb the latent column by.
-    - perturb_latent: Index of the latent column to perturb.
+    - latent_target: Index of the latent column to perturb.
+    - perturb_method: Perturbation method ('0 = add', '1 = subtract', '2 = multiply', '3 = divide').
 
     Returns:
     - pert_latents: Perturbed latent array.
     """
-    pert_latents = jnp.array(orig_latents)
-    pert_latents[:, perturb_latent].add(perturb_value)
+    
+    if perturb_method == 0:
+        pert_latents = orig_latents.at[:, latent_target].add(perturb_value)
+    elif perturb_method == 1:
+        pert_latents = orig_latents.at[:, latent_target].subtract(perturb_value)
+    elif perturb_method == 2:
+        pert_latents = orig_latents.at[:, latent_target].multiply(perturb_value)
+    elif perturb_method == 3:
+        pert_latents = orig_latents.at[:, latent_target].divide(perturb_value)
+    else:
+        raise ValueError("Invalid perturbation method. Choose from 'add', 'subtract', 'multiply', 'divide'.")
     return pert_latents
 
 @jax.jit
@@ -56,6 +66,38 @@ def perturb_all_latents(orig_latents, perturb_values):
         pert_latents[:, latent_index].add(value)
     
     return pert_latents
+
+import jax.numpy as jnp
+from jax import jit
+
+@jax.jit
+def perturb_all_latents_prot(orig_latents, perturb_values, perturb_method='add'):
+    """
+    Perturb all latent columns in the input latents. Distinct value can be chosen for each latents
+
+    Parameters:
+    - orig_latents: Original latent array. (recon[1])
+    - perturb_values: List of values to perturb all latent columns.
+    - perturb_method: Perturbation method ('add', 'subtract', 'multiply', 'divide').
+
+    Returns:
+    - pert_latents: Perturbed latent array.
+    """
+    
+    for value, latent_index in zip(perturb_values, range(orig_latents.shape[1])):
+        if perturb_method == 'add':
+            pert_latents = pert_latents.at[:, latent_index].add(value)
+        elif perturb_method == 'subtract':
+            pert_latents = pert_latents.at[:, latent_index].subtract(value)
+        elif perturb_method == 'multiply':
+            pert_latents = pert_latents.at[:, latent_index].multiply(value)
+        elif perturb_method == 'divide':
+            pert_latents = pert_latents.at[:, latent_index].divide(value)
+        else:
+            raise ValueError("Invalid perturbation method. Choose from 'add', 'subtract', 'multiply', 'divide'.")
+    
+    return pert_latents
+
 
 def calculate_displacement_vectors(orig_decoded, pert_decoded):
     """
@@ -122,7 +164,7 @@ def plot_mean_displacement(displacement_vectors):
 
 # Example usage:
 #   orig_latents = jnp.array(recon[1])
-#   pert_latents = perturb_single_latent(orig_latents, perturb_value=-0.5, perturb_latent=0)
+#   pert_latents = perturb_single_latent(orig_latents, perturb_value=-0.5, latent_target=0)
 
 #   perturb_values = [-0.5, 0.2, 0.1]
 #   pert_latents = perturb_all_latents(orig_latents, perturb_values)
