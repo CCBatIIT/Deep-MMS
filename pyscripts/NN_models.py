@@ -48,6 +48,20 @@ class DataStream():
                 yield self.data[batch_idx]
 
 class Encoder(nn.Module):
+    '''
+    Encoder module for a neural network.
+
+    Args:
+        d_hidden (list): List of hidden layer sizes.
+        latent_size (int): Size of latent space.
+        activators (list): List of activation functions for each layer.
+        layer_ops (list): List of layer operations for each layer.
+        dropout_rates (list): List of dropout rates for each layer.
+
+    Returns:
+        Encoded representation of the input.
+
+    '''
     d_hidden: list
     latent_size: int
     activators: list
@@ -55,7 +69,17 @@ class Encoder(nn.Module):
     dropout_rates: list
         
     @nn.compact
-    def __call__(self, x):
+    def __call__(self, x): 
+        '''
+        Encodes the input data.
+
+        Args:
+            x: Input data.
+
+        Returns:
+            Latent representation of the input data.
+
+        '''
         for i in range(len(self.d_hidden)):
             x = self.activators[i](self.layer_ops[i](self.d_hidden[i])(x))
             x = nn.Dropout(rate=self.dropout_rates[i])(x, deterministic=True)
@@ -63,6 +87,20 @@ class Encoder(nn.Module):
         return x
 
 class Decoder(nn.Module):
+    '''
+    Decoder module for a neural network.
+
+    Args:
+        d_hidden (list): List of hidden layer sizes.
+        latent_size (int): Size of latent space.
+        activators (list): List of activation functions for each layer.
+        layer_ops (list): List of layer operations for each layer.
+        dropout_rates (list): List of dropout rates for each layer.
+    
+    Returns:
+        Decoded representation of the output.
+
+    '''
     d_hidden: list
     output_size: int
     activators: list
@@ -71,6 +109,16 @@ class Decoder(nn.Module):
 
     @nn.compact
     def __call__(self, z):
+        '''
+        Decodes the latent representation.
+
+        Args:
+            z: Latent representation.
+
+        Returns:
+            Decoded output into original space.
+
+        '''
         for i in range(len(self.d_hidden))[::-1]:
             z = self.activators[i](self.layer_ops[i](self.d_hidden[i])(z))
             z = nn.Dropout(rate=self.dropout_rates[i])(z, deterministic=True)
@@ -78,6 +126,27 @@ class Decoder(nn.Module):
         return z
 
 class AutoEncoder(nn.Module):
+    '''
+    Autoencoder neural network model, composed of both an encoder and decoder.
+
+    Args:
+        input_size (int): Size of the input data.
+        n_latents (int): Size of the latent space.
+        hidden_layers (list): List of hidden layer sizes.
+        activators (list): List of activation functions for each layer.
+        layer_ops (list): List of layer operations for each layer.
+        dropout_rates (list): List of dropout rates for each layer.
+
+    Methods:
+        setup(): Initializes the encoder and decoder modules.
+        __call__(x, z_rng): Encodes the input data and then decodes it back to the original space.
+        decode(z, z_rng): Decodes the latent representation back to the original space.
+
+    Example:
+        autoencoder = AutoEncoder(**args**)
+        output, latent_representation = autoencoder(input_data, z_rng)
+
+    '''
     input_size: int
     n_latents: int
     hidden_layers: list
@@ -86,12 +155,28 @@ class AutoEncoder(nn.Module):
     dropout_rates: list
 
     def setup(self):
+        '''
+        Initializes the encoder and decoder modules.
+
+        '''
         self.encoder = Encoder(self.hidden_layers, self.n_latents, self.activators, self.layer_ops, self.dropout_rates)
         self.decoder = Decoder(self.hidden_layers, self.input_size, self.activators, self.layer_ops, self.dropout_rates)
 
     def __call__(self, x, z_rng):
+        '''
+        Encodes the input data and then decodes back to original space.
+
+        '''
         z_latent = self.encoder(x)
         return self.decoder(z_latent), z_latent
 
     def decode(self, z, z_rng):
+        '''
+        Decodes the latent representation back to the original space.
+
+        Args:
+            z: Latent representation.
+            z_rng: Random number generator.
+
+        '''
         return self.decoder(z)
