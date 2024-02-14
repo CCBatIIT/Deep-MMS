@@ -48,7 +48,7 @@ class Maths():
         This function invoked in __init__ in order to appropriately map everything
         """
         #ParticleWise Distances returns n_conf distances
-        self.atom_rmsd = jax.vmap(self.atom_rmsd, in_axes=(0,0))
+        self.atom_rmsd = jax.jit(self.atom_rmsd)
         self.cos_torsional_dist = jax.jit(self.cos_torsional_dist)
         self.atom_rmtd = jax.jit(self.atom_rmtd)
         self.scaled_pot_enr_diff = jax.jit(self.scaled_pot_enr_diff)
@@ -84,9 +84,12 @@ class Maths():
     def atom_rmsd(self, a, b, **kwargs): # for arrays of (n_conf, n_atom*3)
         """VMAPED iterates over the n_configurational array, read a and b below as iterations over a,b which are actually provided
         Ex. if a has shape (10, 300), then in code below the expected shape of a is (300)"""
-        mn = a.shape[-1]//3
-        x_inds, y_inds, z_inds = jnp.arange(0,mn), jnp.arange(mn, 2*mn), jnp.arange(2*mn, 3*mn)
-        return jnp.sqrt(jnp.mean((b[x_inds] - a[x_inds])**2 + (b[y_inds] - a[y_inds])**2 + (b[z_inds] - a[z_inds])**2))
+        @jax.vmap
+        def inner(a, b):
+            mn = a.shape[-1]//3
+            x_inds, y_inds, z_inds = jnp.arange(0,mn), jnp.arange(mn, 2*mn), jnp.arange(2*mn, 3*mn)
+            return jnp.sqrt(jnp.mean((b[x_inds] - a[x_inds])**2 + (b[y_inds] - a[y_inds])**2 + (b[z_inds] - a[z_inds])**2))
+        return inner(a, b)
     
     def cos_torsional_dist(self, a, b, **kwargs):
         """For molecular sets, a, b
