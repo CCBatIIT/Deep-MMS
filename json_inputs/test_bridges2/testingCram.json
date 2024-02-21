@@ -1,0 +1,39 @@
+{
+    "files" : {
+        "fname_dcd" : "/ocean/projects/mcb160011p/josephdb/githubs/Deep-MMS/Simulation/1crn_H_1us_FULL.dcd",
+        "fname_prmtop" : "/ocean/projects/mcb160011p/josephdb/githubs/Deep-MMS/Simulation/1crn_H.prmtop",
+        "save_dir" : "/ocean/projects/mcb160011p/josephdb/githubs/Deep-MMS/",
+        "data_dir" : "None"
+    },
+    "training" : {
+        "epoch" : {
+            "num_init_epochs" : 10,
+            "struct_cutoff" : 100,
+            "scaling_cutoff": 2000,
+            "max_epoch" : 10000},
+        "arch" : {
+            "latent_dim" : 77,
+            "batch_size" : 50,
+            "learning_rate" : 1e-05,
+            "rng_key" : 6489,
+            "dropout_rates" : [0.2, 0.2, 0.2],
+            "hidden_layers" : "Auto",
+            "layer_ops" : ["flax.linen.Dense", "flax.linen.Dense", "flax.linen.Dense", "flax.linen.Dense"],
+            "activators" : ["flax.linen.relu", "flax.linen.relu", "flax.linen.relu", "flax.linen.relu"]},
+        "data" : {
+            "test_slice": 2,
+            "data_slice_start": 3000,
+            "data_slice_end": 4000},
+        "thresh" : {
+            "structural_go_to_scaling" : 1.0,
+            "final_to_end" : 1.0}
+    },
+    "model" : {
+        "model_name": "Test_DA",
+        "model_type": "ReLu_Dropout"
+    },
+    "restraint" : {
+        "restrained_run" : false ,
+        "restrained_atom_indices" : [4, 96]
+    }
+}
