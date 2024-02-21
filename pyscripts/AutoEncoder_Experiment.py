@@ -1,11 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import jax, optax, orbax, sys, os, json, pickle, glob
-from .training_functions import Maths
+import netCDF4 as nc
+import jax, optax, orbax, sys, os, json, pickle, glob, flax, time
+from .Maths import Maths
 from .NN_models import *
 from . import jax_amber3 as jaa
 import jax.numpy as jnp
-import flax
 from flax import linen as nn
 from flax.training import train_state, orbax_utils
 from flax.serialization import from_state_dict, to_state_dict
@@ -46,7 +46,7 @@ class AutoEncoder_Experiment():
         activators = self.json_params["training"]["arch"]["activators"]
         layer_ops = self.json_params["training"]["arch"]["layer_ops"]
         dropout_rates = self.json_params["training"]["arch"]["dropout_rates"]
-        batch_size = self.json_params["training"]["arch"]["batch_size"]
+        self.batch_size = self.json_params["training"]["arch"]["batch_size"]
         learning_rate = self.json_params["training"]["arch"]["learning_rate"]
         test_slice = self.json_params["training"]["data"]["test_slice"]
         rng_key = self.json_params["training"]["arch"]["rng_key"]
@@ -111,30 +111,55 @@ class AutoEncoder_Experiment():
         
         #Set Test and Train data into batches - Train
         num_train = self.train_data.shape[0]
-        num_complete_batches, leftover = divmod(num_train, batch_size)
+        num_complete_batches, leftover = divmod(num_train, self.batch_size)
         self.num_train_batches = num_complete_batches + bool(leftover)
-        self.train_batches = DataStream(self.n_latents, num_train, self.num_train_batches, batch_size, self.train_data)
+        self.train_batches = DataStream(self.n_latents, num_train, self.num_train_batches, self.batch_size, self.train_data)
         #Test
         num_test = self.test_data.shape[0]
-        num_complete_batches, leftover = divmod(num_test, batch_size)
+        num_complete_batches, leftover = divmod(num_test, self.batch_size)
         self.num_test_batches = num_complete_batches + bool(leftover)
-        self.test_batches = DataStream(self.n_latents, num_test, self.num_test_batches, batch_size, self.test_data)
+        self.test_batches = DataStream(self.n_latents, num_test, self.num_test_batches, self.batch_size, self.test_data)
         
         #Initialize data_storage
-        self.data_file = open(os.path.join(self.data_dir, f'model_{self.model_name}_{self.n_latents:02d}.out'), 'w')
+        self.nc_data_file = os.path.join(self.data_dir, f'model_{self.model_name}_{self.n_latents:02d}.nc')
+        self.establish_netcdf(self.nc_data_file)
         self.epoch = 0
-        self.rmsd_loss = ([], [])
-        self.tors_loss = ([], [])
-        self.pot_enr_loss = ([], [])
-        self.summ_loss = ([], [])
-        self.potential_coefficients = []
-        self.torsional_coefficients = []
         
         print("######################################")
         print("#####     Initializing Done!     #####")
         print(self.model)
         print("######################################")
+
+        #testing
+        self.kernel_function = self.math.make_gaussian_kernel(self.math.rmsd_distance_matrix, 'mean', self.train_data)
         
+    def establish_netcdf(self, nc_filename):
+        rootgrp = nc.Dataset(nc_filename, 'w', format='NETCDF4')
+        traingrp = rootgrp.createGroup('Train')
+        testgrp = rootgrp.createGroup('Test')
+
+        traingrp.createDimension('epoch', None)
+        traingrp.createDimension('batch', self.num_train_batches)
+        traingrp.createDimension('frame', self.batch_size)
+
+        testgrp.createDimension('epoch', None)
+        testgrp.createDimension('batch', self.num_test_batches)
+        testgrp.createDimension('frame', self.batch_size)
+
+        for grp in [traingrp, testgrp]:
+            rmsd = grp.createVariable('RMSD', 'f4', ('epoch', 'batch', 'frame',))
+            rmsd.units = "Nanometer"
+            rmtd = grp.createVariable('RMTD', 'f4', ('epoch', 'batch', 'frame',))
+            rmtd.units = "Radians"
+            pot = grp.createVariable('Potential', 'f8', ('epoch', 'batch', 'frame',))
+            pot.units = "KJ/mol"
+            #repel = grp.createVariable('Repulsion', 'f8', ('epoch', 'batch', 'frame',))
+            #repel.units = 'depends'
+            grp.history = "Created" + time.ctime(time.time())
+            
+        self.traingrp, self.testgrp = traingrp, testgrp
+        
+    
     def write_model_to_ckpt(self, ckpt_fn=None):
         if ckpt_fn is None:
             ckpt_fn = os.path.join(self.data_dir, f'model_ckpt_{self.epoch:06d}.pkl')
@@ -192,14 +217,18 @@ class AutoEncoder_Experiment():
         else:
             self.write_traj(f"recon_test", decoded)
 
-    def save_loss_data(self):
-        #LOSSES
-        loss_names = ['RMSD', 'TORSION', 'POTENTIAL', 'SUMM']
-        for arr in (self.rmsd_loss, self.tors_loss, self.pot_enr_loss, self.summ_loss):
-            np.save(os.path.join(self.data_dir, f'{self.model_name}{self.n_latents:02d}_{loss_names.pop(0)}_{self.epoch:06d}.npy'), np.array(arr))
-        #LAMBDAS (potential)
-        np.save(os.path.join(self.data_dir, f'{self.model_name}{self.n_latents:02d}_lambdas_{self.epoch:06d}.npy'), np.array(self.potential_coefficients))
-
+    def plot_losses(self):
+        
+        for var_name in ['RMSD', 'RMTD', 'Potential']:
+            plt.clf()
+            for grp in (self.traingrp, self.testgrp):
+                _ = plt.plot(np.arange(self.epoch), np.mean(grp.variables[var_name], axis=(1, 2)))
+            plt.title(var_name)
+            if var_name == 'Potential':
+                plt.yscale('log')
+            plt.xlabel('Epoch')
+            plt.show()
+    
     def eval_batches(self, batch_set, eval_function, **kwargs):
         vals = []
         f = iter(batch_set)
@@ -208,41 +237,44 @@ class AutoEncoder_Experiment():
             batch = next(f)
             decoded, latents = self.reconstruct(batch, self.epoch)
             #Eval Batch
-            vals.append(eval_function(batch, decoded, **kwargs))
-        vals = jnp.array(vals)
-        return vals.flatten()
-
-    def eval_losses(self, **kwargs):
-        self.rmsd_loss[0].append(self.eval_batches(self.train_batches, self.math.atom_rmsd).mean())
-        self.rmsd_loss[1].append(self.eval_batches(self.test_batches, self.math.atom_rmsd).mean())
-
-        self.tors_loss[0].append(self.eval_batches(self.train_batches, self.math.atom_rmtd).mean())
-        self.tors_loss[1].append(self.eval_batches(self.test_batches, self.math.atom_rmtd).mean())
+            vals.append(eval_function(batch, decoded))
+        return jnp.array(vals)
         
-        self.pot_enr_loss[0].append(self.eval_batches(self.train_batches, self.math.scaled_pot_enr_diff).mean())
-        self.pot_enr_loss[1].append(self.eval_batches(self.test_batches, self.math.scaled_pot_enr_diff).mean())
 
-        self.summ_loss[0].append(self.eval_batches(self.train_batches, self.math.summation_distance, **kwargs).mean())
-        self.summ_loss[1].append(self.eval_batches(self.test_batches, self.math.summation_distance, **kwargs).mean())
+    def eval_losses(self):
+        self.traingrp.variables['RMSD'][self.epoch, :, :] = self.eval_batches(self.train_batches, self.math.atom_rmsd)
+        self.testgrp.variables['RMSD'][self.epoch, :, :] = self.eval_batches(self.test_batches, self.math.atom_rmsd)
+        
+        self.traingrp.variables['RMTD'][self.epoch, :, :] = self.eval_batches(self.train_batches, self.math.atom_rmtd)
+        self.testgrp.variables['RMTD'][self.epoch, :, :] = self.eval_batches(self.test_batches, self.math.atom_rmtd)
+        
+        self.traingrp.variables['Potential'][self.epoch, :, :] = self.eval_batches(self.train_batches, self.math.scaled_pot_enr_diff)
+        self.testgrp.variables['Potential'][self.epoch, :, :] = self.eval_batches(self.test_batches, self.math.scaled_pot_enr_diff)
 
-        self.potential_coefficients.append(kwargs["potential_coefficient"])
+        #FIX THIS NOW
+        #self.traingrp.variables['Repulsion'][self.epoch, :, :] = self.eval_batches(self.train_batches, self.kernel_function)
+        #self.testgrp.variables['Repulsion'][self.epoch, :, :] = self.eval_batches(self.test_batches, self.kernel_function)
+        
+        most_recent_results = []
 
-        most_recent_results = jnp.array((self.rmsd_loss[0][-1], self.rmsd_loss[1][-1],
-                               self.tors_loss[0][-1], self.tors_loss[1][-1],
-                               self.pot_enr_loss[0][-1], self.pot_enr_loss[1][-1],
-                               self.summ_loss[0][-1], self.summ_loss[1][-1]))
+        for grp in (self.traingrp, self.testgrp):
+            for variable in ['RMSD', 'RMTD', 'Potential']:#, 'Repulsion']:
+                most_recent_results.append(grp.variables[variable][self.epoch, :, :].mean())
+        
+        
+        #most_recent_results = jnp.array((self.rmsd_loss[0][-1], self.rmsd_loss[1][-1],
+        #                       self.tors_loss[0][-1], self.tors_loss[1][-1],
+        #                       self.pot_enr_loss[0][-1], self.pot_enr_loss[1][-1]))
 
-        return most_recent_results
+        return jnp.array(most_recent_results)
 
 
-    def report_last_losses(self, potential_coefficient):
+    def report_last_losses(self, weights):
         #Evaluate and Record
-        last_losses = self.eval_losses(potential_coefficient=potential_coefficient)
+        last_losses = self.eval_losses()
         #Report Loss Values
-        print(self.epoch, '%.4E'%last_losses[0], '%.4E'%last_losses[1],
-              '%.4E'%last_losses[2], '%.4E'%last_losses[3], '%.4E'%last_losses[4],
-              '%.4E'%last_losses[5], '%.4E'%last_losses[6], '%.4E'%last_losses[7],
-              'L=%.4E'%potential_coefficient)
+        print(self.epoch, '%.4E'%last_losses[0], '%.4E'%last_losses[1], '%.4E'%last_losses[2],
+              '%.4E'%last_losses[3], '%.4E'%last_losses[4], '%.4E'%last_losses[5], weights)
         NAN_check = jnp.isnan(last_losses)
         return NAN_check
 
@@ -258,62 +290,87 @@ class AutoEncoder_Experiment():
             #Get Batch
             batch = next(f)
             #Train Batch
-            self.state, loss_val = step_function(self.state, batch, z_rng=rng, **kwargs)
+            self.state, loss_val = step_function(self.state, batch, z_rng=rng)
             loss_vals.append(loss_val)
         #After ANY EPOCH
         save_args = orbax_utils.save_args_from_target(self.state)
         self.checkpoint_manager.save(self.epoch, self.state, save_kwargs={'save_args': save_args})
         return np.array(loss_vals).mean()
 
-    def post_epoch(self, potential_coefficient, nan_check_ind=-1):
+    def post_epoch(self, weights, nan_check_ind=-1):
         """Things that happen after every epoch, no matter the loss_function"""
         #Record losses and run NAN check
-        nan_check = self.report_last_losses(potential_coefficient)[:nan_check_ind]
+        nan_check = self.report_last_losses(weights)[:nan_check_ind]
         isNAN_check = True in nan_check
         if isNAN_check:
             print("NAN is no-bueno")
             print(nan_check)            
             sys.exit(69)
-        #Record Numpy files sometimes
-        if self.epoch % 200 == 0:
-            self.save_loss_data()
         #iterate the epoch
         self.epoch += 1
         
-    def train_nepochs(self, loss_metric, averaging_method, num_epochs, potential_coefficient=0, nan_check_ind=-1):
-        step_fun = self.math.make_step_function(loss_metric, averaging_method)
+    def define_step_function(self, loss_metrics:list, weights:list, averaging_method:str):
+        #Establish Loss Function
+        if len(loss_metrics) == 1 and len(weights) == 1 and weights[0] == 1:
+            loss_function = loss_metrics[0]
+        else:
+            loss_function = self.math.make_summation_distance_function(loss_metrics, weights)
+        #Establish Step Function
+        step_fun = self.math.make_step_function(loss_function, averaging_method)
+        return step_fun
+    
+    
+    def train_nepochs(self, loss_metrics:list, weights:list, averaging_method:str,
+                      num_epochs:int, nan_check_ind:int=-1):
+        """
+        Train for a given number of epochs
+        """
+        step_fun = self.define_step_function(loss_metrics, weights, averaging_method)
+        #Training Loop
         for i in range(num_epochs):
             #Training
-            loss_this_epoch = self.train_batches_on_step(self.train_batches, step_fun, potential_coefficient=potential_coefficient)
+            loss_this_epoch = self.train_batches_on_step(self.train_batches, step_fun)
             #After all batches seen this epoch
-            self.post_epoch(potential_coefficient, nan_check_ind)
+            self.post_epoch(weights, nan_check_ind)
+        
         return self.epoch
 
-    def train_scaling_coef(self, loss_metric, averaging_method, cutoff_epoch, init_potential_coef=0, freq=10, nan_check_ind=-1):
-        step_fun = self.math.make_step_function(loss_metric, averaging_method)
-        potential_coefficient = init_potential_coef
-        # Every ten epochs choose lambda as min(1, max(lambda[-1], RMSD/NSD))
-        while potential_coefficient != 1 and self.epoch < cutoff_epoch:
-            # Sometime check to see if coef can be larger
-            if self.epoch % freq == 0:
-                #A small part that hard codes which is which
-                proposed_coef = (np.mean(self.rmsd_loss[0][-10:]) / np.mean(self.pot_enr_loss[0][-10:]))
-                #Propose next coefficient
-                potential_coefficient = np.min((1, np.max((1.01*potential_coefficient, proposed_coef))))
-            # Training
-            loss_this_epoch = self.train_batches_on_step(self.train_batches, step_fun, potential_coefficient=potential_coefficient)
-            #After all batches seen this epoch
-            self.post_epoch(potential_coefficient, nan_check_ind)
-        return self.epoch
-
-    def train_to_threshold(self, loss_metric, averaging_method, threshold, cutoff_epoch, potential_coefficient=1, nan_check_ind=-1):
-        step_fun = self.math.make_step_function(loss_metric, averaging_method)
+    def train_to_threshold(self, loss_metrics:list, weights:list, averaging_method:str,
+                           threshold:float, cutoff_epoch:int, nan_check_ind:int=-1):
+        """
+        Train until the value of loss is at or below a threshold
+        """
+        step_fun = self.define_step_function(loss_metrics, weights, averaging_method)
         loss_this_epoch = 100 #something large just to start this loop, this is a ghost value
         while loss_this_epoch > threshold and self.epoch < cutoff_epoch:
             # Training
-            loss_this_epoch = self.train_batches_on_step(self.train_batches, step_fun, potential_coefficient=potential_coefficient)
+            loss_this_epoch = self.train_batches_on_step(self.train_batches, step_fun)
             #After all batches seen this epoch
-            self.post_epoch(potential_coefficient, nan_check_ind)
+            self.post_epoch(weights, nan_check_ind)
+        return self.epoch
+
+    def train_scaling_coef(self, loss_metrics:list, weights:list, averaging_method:str,
+                           scaling_index:int, cutoff_epoch:int, freq:int=10, nan_check_ind:int=-1):
+        """
+        Scale a weight from an initial value up to one
+            This is very typically a scaling of the potential from zero to one
+        """
+        step_fun = self.define_step_function(loss_metrics, weights, averaging_method)
+        # Every ten epochs choose lambda as min(1, max(lambda[-1], RMSD/NSD))
+        while weights[scaling_index] < 1 and self.epoch < cutoff_epoch:
+            # Sometimes check to see if coef can be larger
+            if self.epoch % freq == 0:
+                #Hard Coded :(
+                proposed_coef = (np.mean(self.rmsd_loss[0][-10:]) / np.mean(self.pot_enr_loss[0][-10:]))
+                #Propose next weight value
+                weights[scaling_index] = np.min((1, np.max((1.01*weights[scaling_index], proposed_coef))))
+                #Redefine the step function to reflect the new weight
+                step_fun = self.define_step_function(loss_metrics, weights, averaging_method)
+                
+            # Training
+            loss_this_epoch = self.train_batches_on_step(self.train_batches, step_fun)
+            #After all batches seen this epoch
+            self.post_epoch(weights, nan_check_ind)
         return self.epoch
 
     def main(self):
