@@ -153,8 +153,8 @@ class AutoEncoder_Experiment():
             rmtd.units = "Radians"
             pot = grp.createVariable('Potential', 'f8', ('epoch', 'batch', 'frame',))
             pot.units = "KJ/mol"
-            #repel = grp.createVariable('Repulsion', 'f8', ('epoch', 'batch', 'frame',))
-            #repel.units = 'depends'
+            repel = grp.createVariable('Repulsion', 'f8', ('epoch', 'batch',))# 'frame',))
+            repel.units = 'depends'
             grp.history = "Created" + time.ctime(time.time())
             
         self.traingrp, self.testgrp = traingrp, testgrp
@@ -169,32 +169,6 @@ class AutoEncoder_Experiment():
 
     def load_model_from_ckpt(self, chkpt_fn, restore_step):
         self.state = self.orbax_checkpointer.restore(chkpt_fn, item=self.state)
-
-    # def restore_latest(self, restore_model=True, restore_numpy=False):
-    #     #Restore Model
-    #     if restore_model is True:
-    #         self.state = self.checkpoint_manager.restore(self.checkpoint_manager.latest_step(), items=self.state)
-        
-    #     #Retrieve Loss Data
-    #     npy_fns = glob.glob(os.path.join(self.data_dir, '*.npy'))
-    #     loss_keys = [key for key in {'RMSD': 0, 'POTENTIAL': 0, 'SUM': 0, 'lambdas' : 0}]
-    #     for key in ['RMSD', 'POTENTIAL', 'SUM', 'lambdas']:
-    #         npy_ind = [key in npy_fn for npy_fn in npy_fns].index(True)
-    #         npy_data = np.load(npy_fns[npy_ind])
-    #         if key == 'RMSD':
-    #             self.rmsd_loss = (list(npy_data[0]), list(npy_data[1]))
-    #             self.epoch = len(self.rmsd_loss[0])
-    #         elif key == 'POTENTIAL':
-    #             self.pot_enr_loss = (list(npy_data[0]), list(npy_data[1]))
-    #         elif key == 'SUM':
-    #             self.summ_loss = (list(npy_data[0]), list(npy_data[1]))
-    #         elif key == 'lambdas':
-    #             self.potential_coefficients = list(npy_data)
-    #         #print(self.rmsd_loss, self.pot_enr_loss, self.summ_loss, self.potential_coefficients)
-    #         #assert len(self.rmsd_loss[0]) == len(self.pot_enr_loss[1])
-    #         #assert len(self.pot_enr_loss[1]) == len(self.summ_loss[0])
-    #         #assert len(self.lambdas) == len(self.summ_loss[0])
-            
             
     def write_traj(self, identifier, traj_xyz): #(n conf, n_atoms*3) OR (n conf, n_atoms, 3)
         fname = os.path.join(self.data_dir, f'{identifier}_{self.model_name}{self.n_latents:02d}.dcd')
@@ -252,14 +226,15 @@ class AutoEncoder_Experiment():
         self.testgrp.variables['Potential'][self.epoch, :, :] = self.eval_batches(self.test_batches, self.math.scaled_pot_enr_diff)
 
         #FIX THIS NOW
-        #self.traingrp.variables['Repulsion'][self.epoch, :, :] = self.eval_batches(self.train_batches, self.kernel_function)
-        #self.testgrp.variables['Repulsion'][self.epoch, :, :] = self.eval_batches(self.test_batches, self.kernel_function)
+        self.traingrp.variables['Repulsion'][self.epoch, :] = self.eval_batches(self.train_batches, self.kernel_function)
+        self.testgrp.variables['Repulsion'][self.epoch, :] = self.eval_batches(self.test_batches, self.kernel_function)
         
         most_recent_results = []
 
         for grp in (self.traingrp, self.testgrp):
-            for variable in ['RMSD', 'RMTD', 'Potential']:#, 'Repulsion']:
+            for variable in ['RMSD', 'RMTD', 'Potential']:
                 most_recent_results.append(grp.variables[variable][self.epoch, :, :].mean())
+            most_recent_results.append(grp.variables['Repulsion'][self.epoch, :].mean())
         
         
         #most_recent_results = jnp.array((self.rmsd_loss[0][-1], self.rmsd_loss[1][-1],
@@ -273,8 +248,8 @@ class AutoEncoder_Experiment():
         #Evaluate and Record
         last_losses = self.eval_losses()
         #Report Loss Values
-        print(self.epoch, '%.4E'%last_losses[0], '%.4E'%last_losses[1], '%.4E'%last_losses[2],
-              '%.4E'%last_losses[3], '%.4E'%last_losses[4], '%.4E'%last_losses[5], weights)
+        print(self.epoch, '%.4E'%last_losses[0], '%.4E'%last_losses[1], '%.4E'%last_losses[2], '%.4E'%last_losses[3],
+               '%.4E'%last_losses[4], '%.4E'%last_losses[5], '%.4E'%last_losses[6], '%.4E'%last_losses[7], weights)
         NAN_check = jnp.isnan(last_losses)
         return NAN_check
 
@@ -302,7 +277,9 @@ class AutoEncoder_Experiment():
         #Record losses and run NAN check
         nan_check = self.report_last_losses(weights)[:nan_check_ind]
         isNAN_check = True in nan_check
-        if isNAN_check:
+        if nan_check_ind is None:
+            pass
+        elif isNAN_check:
             print("NAN is no-bueno")
             print(nan_check)            
             sys.exit(69)

@@ -12,7 +12,7 @@
             "scaling_cutoff": 2000,
             "max_epoch" : 10000},
         "arch" : {
-            "latent_dim" : 77,
+            "latent_dim" : 17,
             "batch_size" : 50,
             "learning_rate" : 1e-05,
             "rng_key" : 6489,

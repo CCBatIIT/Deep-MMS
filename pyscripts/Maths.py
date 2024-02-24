@@ -58,8 +58,8 @@ class Maths():
         This function invoked in __init__ in order to appropriately map everything
         """
         #ParticleWise Distances returns n_conf distances
-        self.atom_rmsd = jax.jit(self.atom_rmsd)
-        self.cos_torsional_dist = jax.jit(self.cos_torsional_dist)
+        self.atom_rmsd = jax.vmap(self.atom_rmsd, in_axes=(0, 0))
+        self.cos_torsional_dist = jax.vmap(self.cos_torsional_dist, in_axes=(0, 0))
         self.atom_rmtd = jax.jit(self.atom_rmtd)
         self.scaled_pot_enr_diff = jax.jit(self.scaled_pot_enr_diff)
         self.structural_distance = jax.jit(self.structural_distance)
@@ -70,10 +70,10 @@ class Maths():
         self.simple_scaled_diff = jax.vmap(self.simple_scaled_diff, in_axes=(None, 0))
         # Pairwise matrix operations
         self.rmsd_distance_matrix = jax.jit(self.rmsd_distance_matrix)
-        self.rmtd_distance_matrix = jax.jit(self.rmtd_distance_matrix)
-        self.structural_distance_matrix = jax.jit(self.structural_distance_matrix)
-        self.potential_distance_matrix = jax.jit(self.potential_distance_matrix)
-        self.summation_distance_matrix = jax.jit(self.summation_distance_matrix)
+        #self.rmtd_distance_matrix = jax.jit(self.rmtd_distance_matrix)
+        #self.structural_distance_matrix = jax.jit(self.structural_distance_matrix)
+        #self.potential_distance_matrix = jax.jit(self.potential_distance_matrix)
+        #self.summation_distance_matrix = jax.jit(self.summation_distance_matrix)
         return None
         
     def report_num_atoms(self):
@@ -88,13 +88,10 @@ class Maths():
     def atom_rmsd(self, a, b): # for arrays of (n_conf, n_atom*3)
         """VMAPED iterates over the n_configurational array, read a and b below as iterations over a,b which are actually provided
         Ex. if a has shape (10, 300), then in code below the expected shape of a is (300)"""
-        @jax.vmap
-        def inner(a, b):
-            mn = a.shape[-1]//3
-            x_inds, y_inds, z_inds = jnp.arange(0,mn), jnp.arange(mn, 2*mn), jnp.arange(2*mn, 3*mn)
-            return jnp.sqrt(jnp.mean((b[x_inds] - a[x_inds])**2 + (b[y_inds] - a[y_inds])**2 + (b[z_inds] - a[z_inds])**2))
-        return inner(a, b)
-    
+        mn = a.shape[-1]//3
+        x_inds, y_inds, z_inds = jnp.arange(0,mn), jnp.arange(mn, 2*mn), jnp.arange(2*mn, 3*mn)
+        return jnp.sqrt(jnp.mean((b[x_inds] - a[x_inds])**2 + (b[y_inds] - a[y_inds])**2 + (b[z_inds] - a[z_inds])**2))
+            
     def rmsd_one_off(self, a, b):
         """A distance function where A is one particle, and B is a set of particles (A = (3*natom), B = (n_conf>1, 3*natom))"""
         rmsd = jnp.sqrt(jnp.mean((b - a)**2 + (b - a)**2 + (b - a)**2))
@@ -113,12 +110,12 @@ class Maths():
         """For molecular sets, a, b
             returns 1/2 of the square of the L2 distance between two angles which are cast onto the unit circle.
             L2d(Theta1, Theta2) = sqrt(2*(1-cos(a-b)))"""
-        a, b = self.tors_fun(a), self.tors_fun(b)
         return 1 - jnp.cos(b-a) #invariant to order of opt, as cosine is an even function
     
     def atom_rmtd(self, a, b):
         """Extension of cos_torsional_dist to calculat the RMTD (Root Mean Torsional Deviation)"""
-        return jnp.sqrt(jnp.mean(self.cos_torsional_dist(a, b), axis=1)) #axis invoked here and not for rmSd because this function is not vmapped    
+        a, b = self.tors_fun(a), self.tors_fun(b)
+        return jnp.sqrt(jnp.mean(self.cos_torsional_dist(a, b), axis=1)) #axis invoked here and not for rmSd because rmsd is sqrt summed inside vmapping 
     
     def rmtd_one_off(self, a, b):
         """Where A, and B are torsional particles, analogously defined as in rmsd one off"""
@@ -168,7 +165,8 @@ class Maths():
             loss_function - The created loss function
         """
         assert len(distance_functions) == len(weights)
-        
+
+        @jax.jit
         def loss_function(batch, decoded):
             return jnp.sum(jnp.array([weights[i] * distance_functions[i](batch, decoded) for i in range(len(weights))]), axis=0)
         return loss_function
@@ -229,11 +227,11 @@ class Maths():
             def average(vals):
                 return jnp.sqrt(jnp.sum(vals**2)/vals.shape[0])
         
-        @jax.jit
+        #@jax.jit
         def repulsion_term(batch, decoded):
             matrix = distance_matrix_function(decoded, decoded) #This is not a typo, decoded against itself
             triu = jnp.triu(kernel(matrix), k=1)
-            return average(triu[jnp.where(triu != 0)])
+            return average(triu[jnp.where(triu > 0)])
 
         return repulsion_term
 
