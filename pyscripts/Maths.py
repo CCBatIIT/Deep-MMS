@@ -58,12 +58,12 @@ class Maths():
         This function invoked in __init__ in order to appropriately map everything
         """
         #ParticleWise Distances returns n_conf distances
-        self.atom_rmsd = jax.vmap(self.atom_rmsd, in_axes=(0, 0))
+        self.atom_rmsd, self.atom_rmsd_jit = jax.vmap(self.atom_rmsd, in_axes=(0, 0)), jax.jit(self.atom_rmsd)
         self.cos_torsional_dist = jax.vmap(self.cos_torsional_dist, in_axes=(0, 0))
         self.atom_rmtd = jax.jit(self.atom_rmtd)
         self.scaled_pot_enr_diff = jax.jit(self.scaled_pot_enr_diff)
-        self.structural_distance = jax.jit(self.structural_distance)
-        self.summation_distance = jax.jit(self.summation_distance)
+        #self.structural_distance = jax.jit(self.structural_distance)
+        #self.summation_distance = jax.jit(self.summation_distance)
         # Helper functions for distance matrices
         self.rmsd_one_off = jax.vmap(self.rmsd_one_off, in_axes=(None, 0))
         self.rmtd_one_off = jax.vmap(self.rmtd_one_off, in_axes=(None, 0))
@@ -97,14 +97,17 @@ class Maths():
         rmsd = jnp.sqrt(jnp.mean((b - a)**2 + (b - a)**2 + (b - a)**2))
         return rmsd
         
-    def rmsd_distance_matrix(self, a, b):
-        """
-        Where A and B are 2D arrays of positions (n_conf, 3*n_atom)
-        """
-        rmsd = jnp.zeros((a.shape[0], b.shape[0]))
-        for i in range(a.shape[0]):
-            rmsd = rmsd.at[i,:].set(self.rmsd_one_off(a[i],b))
-        return rmsd
+   # def rmsd_distance_matrix(self, a, b):
+   #     """
+   #     Where A and B are 2D arrays of positions (n_conf, 3*n_atom)
+   #     """
+   #     rmsd = jnp.zeros((a.shape[0], b.shape[0]))
+   #     for i in range(a.shape[0]):
+   #         rmsd = rmsd.at[i,:].set(self.rmsd_one_off(a[i],b))
+   #     return rmsd
+
+    def rmsd_distance_matrix(self, xs, ys):
+      return jax.vmap(lambda x: jax.vmap(lambda y: self.atom_rmsd_jit(x, y))(xs))(ys)
     
     def cos_torsional_dist(self, a, b):
         """For molecular sets, a, b
@@ -205,7 +208,7 @@ class Maths():
         return custom_step
 
     #Repulsion
-    def make_gaussian_kernel(self, distance_matrix_function, averaging_method, train_data):
+    def make_gaussian_kernel(self, distance_matrix_function, averaging_method, train_data, batch_size):
         """
         Create a gaussian kernel function (of the form e^(-1*(distance_metric**2)/h))
         Where distance function is an elementwise distance matrix calculation (rmsd, rmtd, potential, etc)
@@ -227,11 +230,14 @@ class Maths():
             def average(vals):
                 return jnp.sqrt(jnp.sum(vals**2)/vals.shape[0])
         
-        #@jax.jit
+        #This is the number of entries in the upper tiangle (excluding diagonal) of a batch_size X batch_size matrix
+        size = int(batch_size**2/2 - batch_size/2)
+        
+        @jax.jit
         def repulsion_term(batch, decoded):
             matrix = distance_matrix_function(decoded, decoded) #This is not a typo, decoded against itself
             triu = jnp.triu(kernel(matrix), k=1)
-            return average(triu[jnp.where(triu > 0)])
+            return average(triu[jnp.nonzero(triu, size=size)])
 
         return repulsion_term
 

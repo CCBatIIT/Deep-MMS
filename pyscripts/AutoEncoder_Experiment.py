@@ -14,7 +14,7 @@ import mdtraj as md
 
 
 class AutoEncoder_Experiment():
-    def __init__(self, json_fn):
+    def __init__(self, json_fn, make_dirs=True, from_json_params=False):
         """
         THIS DOCSTRING REQUIRES EDITING
         
@@ -28,8 +28,12 @@ class AutoEncoder_Experiment():
         """
         
         #Get the information from the json file
-        with open(json_fn, 'r') as g:
-            self.json_params = json.load(g)
+        if not from_json_params:
+            with open(json_fn, 'r') as g:
+                self.json_params = json.load(g)
+        else:
+            #To use json parameters that are already in memeory, not just the file name, make from_json_params True and pass the params instead of the json_fn
+            self.json_params = json_fn
 
         #Files
         fname_dcd = self.json_params["files"]["fname_dcd"]
@@ -51,21 +55,21 @@ class AutoEncoder_Experiment():
         test_slice = self.json_params["training"]["data"]["test_slice"]
         rng_key = self.json_params["training"]["arch"]["rng_key"]
         data_start, data_end = self.json_params["training"]["data"]["data_slice_start"], self.json_params["training"]["data"]["data_slice_end"]
-
+        
         #Establish Model Directory
         model_dir = os.path.join(save_dir, f'{self.model_name}/')
-        if not os.path.isdir(model_dir):
+        if not os.path.isdir(model_dir) and make_dirs:
             os.mkdir(model_dir)
         
         #Establish Data Directory
         if self.json_params["files"]["data_dir"] == 'None':
             latent_dir = os.path.join(model_dir, f'{self.n_latents:02d}_latents/')
             self.data_dir = os.path.join(latent_dir, f'rpt_{test_slice}/')
-            if not os.path.isdir(latent_dir):
+            if not os.path.isdir(latent_dir) and make_dirs:
                 os.mkdir(latent_dir)
         else:
             self.data_dir = self.json_params["files"]["data_dir"]
-        if not os.path.isdir(self.data_dir):
+        if not os.path.isdir(self.data_dir) and make_dirs:
             os.mkdir(self.data_dir)
 
         #Get Data to train on
@@ -131,7 +135,7 @@ class AutoEncoder_Experiment():
         print("######################################")
 
         #testing
-        self.kernel_function = self.math.make_gaussian_kernel(self.math.rmsd_distance_matrix, 'mean', self.train_data)
+        self.kernel_function = self.math.make_gaussian_kernel(self.math.rmsd_distance_matrix, 'mean', self.train_data, self.batch_size)
         
     def establish_netcdf(self, nc_filename):
         rootgrp = nc.Dataset(nc_filename, 'w', format='NETCDF4')
