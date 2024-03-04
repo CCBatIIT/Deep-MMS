@@ -34,12 +34,11 @@ class AutoEncoder_Experiment():
         else:
             #To use json parameters that are already in memeory, not just the file name, make from_json_params True and pass the params instead of the json_fn
             self.json_params = json_fn
-
+        
         #Files
         fname_dcd = self.json_params["files"]["fname_dcd"]
         fname_prmtop = self.json_params["files"]["fname_prmtop"]
         save_dir = self.json_params["files"]["save_dir"]
-        self.math = Maths(fname_prmtop)
         
         #Model
         self.model_name = self.json_params["model"]["model_name"]
@@ -134,7 +133,8 @@ class AutoEncoder_Experiment():
         print(self.model)
         print("######################################")
 
-        #testing
+        #MATH
+        self.math = Maths(fname_prmtop)
         self.kernel_function = self.math.make_gaussian_kernel(self.math.rmsd_distance_matrix, 'mean', self.train_data, self.batch_size)
         
     def establish_netcdf(self, nc_filename):
@@ -229,7 +229,6 @@ class AutoEncoder_Experiment():
         self.traingrp.variables['Potential'][self.epoch, :, :] = self.eval_batches(self.train_batches, self.math.scaled_pot_enr_diff)
         self.testgrp.variables['Potential'][self.epoch, :, :] = self.eval_batches(self.test_batches, self.math.scaled_pot_enr_diff)
 
-        #FIX THIS NOW
         self.traingrp.variables['Repulsion'][self.epoch, :] = self.eval_batches(self.train_batches, self.kernel_function)
         self.testgrp.variables['Repulsion'][self.epoch, :] = self.eval_batches(self.test_batches, self.kernel_function)
         
@@ -342,9 +341,9 @@ class AutoEncoder_Experiment():
             # Sometimes check to see if coef can be larger
             if self.epoch % freq == 0:
                 #Hard Coded :(
-                proposed_coef = (np.mean(self.rmsd_loss[0][-10:]) / np.mean(self.pot_enr_loss[0][-10:]))
+                proposed_coef = (np.mean(self.traingrp.variables['RMSD'][-freq:, :, :]) / np.mean(self.traingrp.variables['Potential'][-freq:, :, :]))
                 #Propose next weight value
-                weights[scaling_index] = np.min((1, np.max((1.01*weights[scaling_index], proposed_coef))))
+                weights[scaling_index] = np.min((1, np.max((weights[scaling_index], proposed_coef))))
                 #Redefine the step function to reflect the new weight
                 step_fun = self.define_step_function(loss_metrics, weights, averaging_method)
                 

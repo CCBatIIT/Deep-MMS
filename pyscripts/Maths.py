@@ -1,4 +1,4 @@
-import jax, os
+import jax, os, time
 from . import jax_amber3 as jaa
 import jax.numpy as jnp
 import numpy as np
@@ -48,9 +48,9 @@ class Maths():
         """
         self.prmtop_fn = fname_prmtop
         self.ener_fun, self.tors_fun = jaa.get_amber_functions(fname_prmtop)
-
+        
         self._map_functions()
-
+        
     def _map_functions(self):
         """
         In moving all of these functions to methods, decorators can no longer be used
@@ -59,17 +59,17 @@ class Maths():
         """
         #ParticleWise Distances returns n_conf distances
         self.atom_rmsd, self.atom_rmsd_jit = jax.vmap(self.atom_rmsd, in_axes=(0, 0)), jax.jit(self.atom_rmsd)
-        self.cos_torsional_dist = jax.vmap(self.cos_torsional_dist, in_axes=(0, 0))
-        self.atom_rmtd = jax.jit(self.atom_rmtd)
+        ##self.cos_torsional_dist = jax.vmap(self.cos_torsional_dist, in_axes=(0, 0))
+        ##self.atom_rmtd = jax.jit(self.atom_rmtd)
         self.scaled_pot_enr_diff = jax.jit(self.scaled_pot_enr_diff)
         #self.structural_distance = jax.jit(self.structural_distance)
         #self.summation_distance = jax.jit(self.summation_distance)
         # Helper functions for distance matrices
-        self.rmsd_one_off = jax.vmap(self.rmsd_one_off, in_axes=(None, 0))
-        self.rmtd_one_off = jax.vmap(self.rmtd_one_off, in_axes=(None, 0))
-        self.simple_scaled_diff = jax.vmap(self.simple_scaled_diff, in_axes=(None, 0))
+        ##self.rmsd_one_off = jax.vmap(self.rmsd_one_off, in_axes=(None, 0))
+        ##self.rmtd_one_off = jax.vmap(self.rmtd_one_off, in_axes=(None, 0))
+        ##self.simple_scaled_diff = jax.vmap(self.simple_scaled_diff, in_axes=(None, 0))
         # Pairwise matrix operations
-        self.rmsd_distance_matrix = jax.jit(self.rmsd_distance_matrix)
+        ##self.rmsd_distance_matrix = jax.jit(self.rmsd_distance_matrix)
         #self.rmtd_distance_matrix = jax.jit(self.rmtd_distance_matrix)
         #self.structural_distance_matrix = jax.jit(self.structural_distance_matrix)
         #self.potential_distance_matrix = jax.jit(self.potential_distance_matrix)
@@ -190,13 +190,16 @@ class Maths():
             step_function: A function which evaluates loss metric, coming to a single loss value by averaging method
                            and applies gradients to the NN based on the final value
         """
-        assert averaging_method in ['mean', 'rmsd']
+        assert averaging_method in ['mean', 'rmsd', 'mean+log']
         if averaging_method == 'mean':
             def average(vals):
                 return vals.mean()
         elif averaging_method == 'rmsd':
             def average(vals):
                 return jnp.sqrt(jnp.sum(vals**2)/vals.shape[0])
+        elif averaging_method == 'mean+log':
+            def average(vals):
+                return jnp.log(vals).mean()
 
         @jax.jit
         def custom_step(state, batch_x, z_rng):

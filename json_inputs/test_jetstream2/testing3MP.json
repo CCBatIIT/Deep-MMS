@@ -16,7 +16,7 @@
             "batch_size" : 50,
             "learning_rate" : 1e-05,
             "rng_key" : 6489,
-            "dropout_rates" : [0.2, 0.2, 0.2],
+            "dropout_rates" : [0.4, 0.4, 0.4],
             "hidden_layers" : "Auto",
             "layer_ops" : ["flax.linen.Dense", "flax.linen.Dense", "flax.linen.Dense", "flax.linen.Dense"],
             "activators" : ["flax.linen.relu", "flax.linen.relu", "flax.linen.relu", "flax.linen.relu"]},
