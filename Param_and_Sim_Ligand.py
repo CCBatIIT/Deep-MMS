@@ -11,8 +11,8 @@ import openff.units
 import openff.toolkit
 import openff.interchange
 
-name = 'YOUR NAME'
-smiles = 'YOUR SMILES'
+name = '1-ButamineE'
+smiles = 'CCCCNS'
 
 def write_structure(sim: Simulation, pdb_fn: str):
     with open(pdb_fn, 'w') as f:
