@@ -11,8 +11,8 @@ import openff.units
 import openff.toolkit
 import openff.interchange
 
-name = '1-ButamineE'
-smiles = 'CCCCNS'
+name = '1-Butamine_large'
+smiles = 'CCCCN'
 
 def write_structure(sim: Simulation, pdb_fn: str):
     with open(pdb_fn, 'w') as f:
@@ -43,7 +43,7 @@ rest.addPerParticleParameter('z0')
 rest.addParticle(0, positions[0])
 system.addForce(rest)
 
-n_total, n_dcd, n_std, timestep, temp = 500000, 500, 500, 2.0*femtosecond, 300*kelvin
+n_total, n_dcd, n_std, timestep, temp = 5000000, 500, 500, 2.0*femtosecond, 300*kelvin
 
 simulation = Simulation(topology, system, LangevinIntegrator(temp, 1/picosecond, timestep))
 simulation.context.setPositions(positions)
