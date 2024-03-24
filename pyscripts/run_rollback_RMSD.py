@@ -9,7 +9,7 @@ with open(json_fn, 'r') as g:
         json_params = json.load(g)
 
 #Init Experiment
-experiment = AutoEncoder_Experiment(json_fn)
+experiment = NN_Experiment(json_fn)
 
 #Train RMSD into oblivion
 experiment.MAIN_train_rmsd_only()
