@@ -280,7 +280,8 @@ class NN_Experiment():
         
         #Initialize data_storage
         self.nc_data_file = os.path.join(self.data_dir, f'model_{self.model_name}_{self.n_latents:02d}.nc')
-        self.establish_netcdf(self.nc_data_file)
+        self.nc_checkpoint_file = os.path.join(self.data_dir, f'model_{self.model_name}_{self.n_latents:02d}_checkpoint.nc')
+        self.rootgrp = self.establish_netcdf(self.nc_data_file)
         
         print(self.model)
         print("INITIALIZATION COMPLETE")
@@ -310,8 +311,23 @@ class NN_Experiment():
         coef = traingrp.createVariable('Potential Coefficient', 'f4', ('epoch',))
         coef.units = 'Unitless'
             
-        self.traingrp, self.testgrp = traingrp, testgrp
+        return rootgrp
 
+    def checkpoint_netcdf(self):
+        with nc.Dataset(self.nc_checkpoint_file, "w") as dst:
+            for grp_name, grp in self.rootgrp.groups.items():
+                dst.createGroup(grp_name)
+                # copy global attributes all at once via dictionary
+                dst[grp_name].setncatts(grp.__dict__)
+                # copy dimensions
+                for name, dimension in grp.dimensions.items():
+                    dst[grp_name].createDimension(name, (len(dimension) if not dimension.isunlimited() else None))
+                # copy all file data
+                for name, variable in grp.variables.items():
+                    x = dst[grp_name].createVariable(name, variable.datatype, variable.dimensions)
+                    dst[grp_name][name][:] = grp[name][:]
+                    # copy variable attributes all at once via dictionary
+                    dst[grp_name][name].setncatts(grp[name].__dict__)
     
     def write_model_to_ckpt(self, ckpt_fn=None):
         if ckpt_fn is None:
@@ -364,22 +380,22 @@ class NN_Experiment():
         #recon_train = self.state.apply_fn({'params':self.state.params}, self.train_data, rng)
         #recon_test = self.state.apply_fn({'params':self.state.params}, self.test_data, rng)
 
-        self.traingrp.variables['RMSD'][self.epoch, :, :] = self.eval_batches(self.train_batches, atom_rmsd, None)
-        self.testgrp.variables['RMSD'][self.epoch, :, :] = self.eval_batches(self.test_batches, atom_rmsd, None)
+        self.rootgrp['Train'].variables['RMSD'][self.epoch, :, :] = self.eval_batches(self.train_batches, atom_rmsd, None)
+        self.rootgrp['Test'].variables['RMSD'][self.epoch, :, :] = self.eval_batches(self.test_batches, atom_rmsd, None)
         
-        self.traingrp.variables['Potential'][self.epoch, :, :] = self.eval_batches(self.train_batches, scaled_pot_enr_diff, None)
-        self.testgrp.variables['Potential'][self.epoch, :, :] = self.eval_batches(self.test_batches, scaled_pot_enr_diff, None)
+        self.rootgrp['Train'].variables['Potential'][self.epoch, :, :] = self.eval_batches(self.train_batches, scaled_pot_enr_diff, None)
+        self.rootgrp['Test'].variables['Potential'][self.epoch, :, :] = self.eval_batches(self.test_batches, scaled_pot_enr_diff, None)
         
-        self.traingrp.variables['Summation'][self.epoch, :, :] = self.eval_batches(self.train_batches, summation_loss, potential_coefficient)
-        self.testgrp.variables['Summation'][self.epoch, :, :] = self.eval_batches(self.test_batches, summation_loss, potential_coefficient)
+        self.rootgrp['Train'].variables['Summation'][self.epoch, :, :] = self.eval_batches(self.train_batches, summation_loss, potential_coefficient)
+        self.rootgrp['Test'].variables['Summation'][self.epoch, :, :] = self.eval_batches(self.test_batches, summation_loss, potential_coefficient)
 
-        self.traingrp.variables['Potential Coefficient'][self.epoch] = potential_coefficient
+        self.rootgrp['Train'].variables['Potential Coefficient'][self.epoch] = potential_coefficient
         
         most_recent_results = []
-        for grp in (self.traingrp, self.testgrp):
+        for grp in (self.rootgrp['Train'], self.rootgrp['Test']):
             for variable in ['RMSD', 'Potential', 'Summation']:
                 most_recent_results.append(grp.variables[variable][self.epoch, :, :].mean())
-        most_recent_results.append(self.traingrp.variables['Potential Coefficient'][self.epoch])
+        most_recent_results.append(self.rootgrp['Train'].variables['Potential Coefficient'][self.epoch])
         
         return most_recent_results
     
@@ -403,6 +419,8 @@ class NN_Experiment():
         #After ANY EPOCH
         save_args = orbax_utils.save_args_from_target(self.state)
         self.checkpoint_manager.save(self.epoch, self.state, save_kwargs={'save_args': save_args})
+        if self.epoch > 0 and self.epoch % 100 == 0:
+            self.checkpoint_netcdf()
         
     def train_nepochs_on_rmsd(self, num_rmsd_epochs):
         """
@@ -445,8 +463,8 @@ class NN_Experiment():
                   'Summation', '%.4E'%last_loss[2], '%.4E'%last_loss[5],
                   'L=%.4E'%last_loss[6])
             self.epoch += 1
-            rmsd_above_threshold = self.traingrp['RMSD'][-num_move_ave:, :, :].mean() > nm_cutoff or self.testgrp['RMSD'][-num_move_ave:, :, :].mean() > nm_cutoff
-            test_rmsd_decreasing = self.testgrp['RMSD'][-2*num_move_ave:-num_move_ave, :, :].mean() > self.testgrp['RMSD'][-num_move_ave:, :, :].mean()
+            rmsd_above_threshold = self.rootgrp['Train']['RMSD'][-num_move_ave:, :, :].mean() > nm_cutoff or self.rootgrp['Test']['RMSD'][-num_move_ave:, :, :].mean() > nm_cutoff
+            test_rmsd_decreasing = self.rootgrp['Test']['RMSD'][-2*num_move_ave:-num_move_ave, :, :].mean() > self.rootgrp['Test']['RMSD'][-num_move_ave:, :, :].mean()
 
         if not rmsd_above_threshold:
             print('RMSD Threshold Run - Break Reason - Threshold Reached')
@@ -455,7 +473,7 @@ class NN_Experiment():
         
         return self.epoch
 
-    def train_rmsd_to_lowest(self, num_move_ave=10):
+    def train_rmsd_to_lowest(self, num_move_ave=20):
         """Train on the RMSD until overtraining is deteceted
             Stop training if the RMSD_loss of the test set is rising
         """
@@ -474,7 +492,7 @@ class NN_Experiment():
                   'Summation', '%.4E'%last_loss[2], '%.4E'%last_loss[5],
                   'L=%.4E'%last_loss[6])
             self.epoch += 1
-            test_rmsd_decreasing = self.testgrp['RMSD'][-2*num_move_ave:-num_move_ave, :, :].mean() > self.testgrp['RMSD'][-num_move_ave:, :, :].mean()
+            test_rmsd_decreasing = self.rootgrp['Test']['RMSD'][-2*num_move_ave:-num_move_ave, :, :].mean() > self.rootgrp['Test']['RMSD'][-num_move_ave:, :, :].mean()
 
         if not test_rmsd_decreasing:
             print('RMSD Lowest Run - Break Reason - Test Set Loss Increasing')
@@ -499,9 +517,9 @@ class NN_Experiment():
                   'Summation', '%.4E'%last_loss[2], '%.4E'%last_loss[5],
                   'L=%.4E'%last_loss[6])
             self.epoch += 1
-            potential_above_threshold = (self.traingrp['Potential'][-num_move_ave:, :, :].mean() > potential_threshold or
-                                         self.testgrp['Potential'][-num_move_ave:, :, :].mean() > potential_threshold)
-            test_potential_decreasing = self.testgrp['Potential'][-2*num_move_ave:-num_move_ave, :, :].mean() > self.testgrp['Potential'][-num_move_ave:, :, :].mean()
+            potential_above_threshold = (self.rootgrp['Train']['Potential'][-num_move_ave:, :, :].mean() > potential_threshold or
+                                         self.rootgrp['Test']['Potential'][-num_move_ave:, :, :].mean() > potential_threshold)
+            test_potential_decreasing = self.rootgrp['Test']['Potential'][-2*num_move_ave:-num_move_ave, :, :].mean() > self.rootgrp['Test']['Potential'][-num_move_ave:, :, :].mean()
 
         if not potential_above_threshold:
             print('Potential Threshold Run - Break Reason - Threshold Reached')
@@ -529,7 +547,7 @@ class NN_Experiment():
             #Get the next pot_coef every 5 epochs
             if self.epoch % 5 == 0:
                 #Choose the smaller between 1 and x, where x is the larger of (RMSD/Potential, 1% increase in the current coefficient)
-                self.current_potential_coefficient = np.min((1, np.max((1.01*self.current_potential_coefficient, (self.traingrp.variables['RMSD'][-5:, :, :].mean() / self.traingrp.variables['Potential'][-5:, :, :].mean())))))
+                self.current_potential_coefficient = np.min((1, np.max((1.01*self.current_potential_coefficient, (self.rootgrp['Train'].variables['RMSD'][-5:, :, :].mean() / self.rootgrp['Train'].variables['Potential'][-5:, :, :].mean())))))
         print('Scaling Complete')
         return self.epoch
 
@@ -554,9 +572,9 @@ class NN_Experiment():
                   'Summation', '%.4E'%last_loss[2], '%.4E'%last_loss[5],
                   'L=%.4E'%last_loss[6])
             self.epoch += 1
-            potential_above_threshold = (self.traingrp['Potential'][-num_move_ave:, :, :].mean() > potential_threshold or
-                                         self.testgrp['Potential'][-num_move_ave:, :, :].mean() > potential_threshold)
-            test_potential_decreasing = self.testgrp['Potential'][-2*num_move_ave:-num_move_ave, :, :].mean() > self.testgrp['Potential'][-num_move_ave:, :, :].mean()
+            potential_above_threshold = (self.rootgrp['Train']['Potential'][-num_move_ave:, :, :].mean() > potential_threshold or
+                                         self.rootgrp['Test']['Potential'][-num_move_ave:, :, :].mean() > potential_threshold)
+            test_potential_decreasing = self.rootgrp['Test']['Potential'][-2*num_move_ave:-num_move_ave, :, :].mean() > self.rootgrp['Test']['Potential'][-num_move_ave:, :, :].mean()
         
         if not potential_above_threshold:
             print('Potential Threshold Run - Break Reason - Threshold Reached')
@@ -568,3 +586,4 @@ class NN_Experiment():
     def MAIN_train_rmsd_only(self):
         self.train_nepochs_on_rmsd(100)
         self.train_rmsd_to_lowest()
+        return self.epoch
