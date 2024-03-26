@@ -7,7 +7,7 @@
 #SBATCH --mail-type=END,FAIL
 #SBATCH --mail-user=jdepaoloboisvert@hawk.iit.edu
 #SBATCH --account=mcb160011p
-#SBATCH -t 00:15:00
+#SBATCH -t 04:00:00
 
 source ~/.bashrc
 module load anaconda3
