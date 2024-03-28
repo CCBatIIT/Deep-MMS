@@ -471,13 +471,13 @@ class NN_Experiment():
         
         return self.epoch
 
-    def train_rmsd_to_lowest(self, num_move_ave=20):
+    def train_rmsd_to_lowest(self, num_move_ave=20, max_epoch=100000):
         """Train on the RMSD until overtraining is deteceted
             Stop training if the RMSD_loss of the test set is rising
         """
         test_rmsd_decreasing = True
 
-        while test_rmsd_decreasing:
+        while test_rmsd_decreasing and self.epoch < max_epoch:
             #Training
             self.train_batches_on_step(self.train_batches, rmsd_log_step, self.current_potential_coefficient)
             rng = jax.random.PRNGKey(self.epoch)
