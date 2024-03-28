@@ -212,7 +212,7 @@ class NN_Experiment():
         
         #Establish Data Directory
         if self.json_params["data_dir"] == 'None':
-            latent_dir = os.path.join(model_dir, f'{self.n_latents:02d}_latents/')
+            latent_dir = os.path.join(model_dir, f'{self.n_latents:04d}_latents/')
             self.data_dir = os.path.join(latent_dir, f'rpt_{test_slice}/')
             if not os.path.isdir(latent_dir) and make_dirs:
                 os.mkdir(latent_dir)
@@ -279,8 +279,8 @@ class NN_Experiment():
         self.test_batches = Data_stream(self.n_latents, num_test, self.num_test_batches, self.batch_size, self.test_data)
         
         #Initialize data_storage
-        self.nc_data_file = os.path.join(self.data_dir, f'model_{self.model_name}_{self.n_latents:02d}.nc')
-        self.nc_checkpoint_file = os.path.join(self.data_dir, f'model_{self.model_name}_{self.n_latents:02d}_checkpoint.nc')
+        self.nc_data_file = os.path.join(self.data_dir, f'model_{self.model_name}_{self.n_latents:04d}.nc')
+        self.nc_checkpoint_file = os.path.join(self.data_dir, f'model_{self.model_name}_{self.n_latents:04d}_checkpoint.nc')
         self.rootgrp = self.establish_netcdf(self.nc_data_file)
         
         print(self.model)
@@ -338,7 +338,7 @@ class NN_Experiment():
         self.state = self.orbax_checkpointer.restore(chkpt_fn, item=self.state)
     
     def write_traj(self, identifier, traj_xyz): #(n conf, n_atoms*3) OR (n conf, n_atoms, 3)
-        fname = self.data_dir + f'{identifier}_{self.model_name}{self.n_latents:02d}.dcd'
+        fname = self.data_dir + f'{identifier}_{self.model_name}{self.n_latents:04d}.dcd'
         
         if traj_xyz.shape[-1] != 3:
             traj_xyz = traj_xyz.reshape(traj_xyz.shape[0], -1, 3)
@@ -477,7 +477,7 @@ class NN_Experiment():
         """
         test_rmsd_decreasing = True
 
-        while test_rmsd_decreasing and self.epoch < max_epoch:
+        while test_rmsd_decreasing and self.epoch <= max_epoch:
             #Training
             self.train_batches_on_step(self.train_batches, rmsd_log_step, self.current_potential_coefficient)
             rng = jax.random.PRNGKey(self.epoch)
