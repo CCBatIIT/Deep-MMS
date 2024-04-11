@@ -1,4 +1,5 @@
 import jax, optax, sys, os, json, pickle, time
+from datetime import datetime
 import orbax.checkpoint
 import jax_amber3 as jaa
 import numpy as np
@@ -11,7 +12,17 @@ from flax import linen as nn
 from flax.training import train_state, orbax_utils
 jax.config.update("jax_enable_x64", True)
 
-print(jax.print_environment_info(), jax.default_backend())
+jax.print_environment_info(), jax.default_backend()
+
+from contextlib import contextmanager,redirect_stderr,redirect_stdout
+from os import devnull
+
+@contextmanager
+def suppress_stdout_stderr():
+    """A context manager that redirects stdout and stderr to devnull"""
+    with open(devnull, 'w') as fnull:
+        with redirect_stderr(fnull) as err, redirect_stdout(fnull) as out:
+            yield (err, out)
 
 #Batching data (class usage and slight alterations of code will allow me to store information about the data stream as atrributes)
 class Data_stream():
@@ -192,8 +203,10 @@ class NN_Experiment():
             self.json_params = json_fn
         
         #Files
+        print('Load Files')
         fname_dcd = self.json_params["fname_dcd"]
         fname_prmtop = self.json_params["fname_prmtop"]
+        fname_pdb = self.json_params["fname_pdb"]
         self.n_latents = self.json_params["latent_dim"] #number of latents
         test_slice = self.json_params["test_slice"] #int zero to four inclusive for 20/80 split of test and train
         model_name = self.json_params["model_name"] #string for the model name
@@ -203,8 +216,10 @@ class NN_Experiment():
         learning_rate = self.json_params["learning_rate"]
         dropout_rates = self.json_params["dropout_rates"]
         model_type = self.json_params["model_type"]
+        coordinate_scheme = self.json_params["coordinate_scheme"]
         self.model_name = model_name
-        
+
+        print('Establish Directories')
         #Establish Model Directory
         model_dir = os.path.join(save_dir, f'{self.model_name}/')
         if not os.path.isdir(model_dir) and make_dirs:
@@ -226,6 +241,7 @@ class NN_Experiment():
             data_end = None
         
         #Load and Align
+        print('Load Data with MDTraj')
         c = md.load(fname_dcd, top=fname_prmtop)
         c = c.superpose(c) # FEED IN ALIGNED DATA
         coord_set = jnp.array(c.xyz.reshape(c.xyz.shape[0], -1))[data_start:data_end]
@@ -234,10 +250,27 @@ class NN_Experiment():
         global gas_fun
         gas_fun, _ = jaa.get_amber_functions(fname_prmtop)
         
-        #make hidden layers
-        hidden_layers = [input_size]*3
+        #Change Coordinates to BAT if desired
+        print('Coordinates')
+        assert coordinate_scheme in ["Cartesian", "BAT"]
+        self.coordinate_scheme = coordinate_scheme
+
+        if coordinate_scheme == "BAT":
+            print('Running BAT Conversion')
+            import jax_BAT as jax_BAT
+            import MDAnalysis as mda
+            u = mda.Universe(fname_pdb, fname_dcd)
+            ag = u.select_atoms("all")
+            ag.guess_bonds()
+            self.BAT = jax_BAT.BAT_jax(ag)
+            self.BAT.run()
+            coord_set = self.BAT.results.bat
+            print('Done with BAT Conversion')
+        else:
+            pass
         
         #make test and train sets
+        print('Batch data')
         test_indices = np.array(range(test_slice, num_samples, 5)) #every fifth frame
         train_indices = np.array([element for element in range(num_samples) if element not in test_indices])
         self.test_data = coord_set[test_indices]
@@ -245,16 +278,18 @@ class NN_Experiment():
         print(self.train_data.shape, self.test_data.shape)
         
         #Initialize Model
+        print('Model Init')
         assert model_type in ['VAE', 'AE']
         self.model_type = model_type
-        
+        #make hidden layers
+        hidden_layers = [input_size]*3
         if model_type == 'VAE':
             self.model = VAE(input_size=input_size, latents=self.n_latents,
                              hidden_layers=hidden_layers, dropout_rates=dropout_rates)
         elif model_type == 'AE':
             self.model = AE(input_size=input_size, latents=self.n_latents,
                             hidden_layers=hidden_layers, dropout_rates=dropout_rates)
-        
+
         rng_init = jax.random.PRNGKey(self.n_latents)
         rng, key = jax.random.split(rng_init)
         self.state = train_state.TrainState.create(apply_fn=self.model.apply,
@@ -366,6 +401,9 @@ class NN_Experiment():
             rng, key = jax.random.split(rng)
             recon = self.state.apply_fn({'params':self.state.params}, batch, rng)[0]
             #Eval Batch
+            if self.coordinate_scheme == 'BAT':
+                with suppress_stdout_stderr():
+                    batch, recon = self.BAT.VCartesian(batch).reshape(batch.shape[0], -1), self.BAT.VCartesian(recon).reshape(recon.shape[0], -1)
             vals = vals.at[i, :].set(eval_function(batch, recon, potential_coefficient))
         
         return vals
@@ -426,18 +464,19 @@ class NN_Experiment():
         """
         
         while self.epoch < num_rmsd_epochs:
+            epoch_start = datetime.now()
             #Training
             self.train_batches_on_step(self.train_batches, rmsd_step, self.current_potential_coefficient)
             rng = jax.random.PRNGKey(self.epoch)
             rng, key = jax.random.split(rng)
             #After all batches seen this epoch
             last_loss = self.eval_losses(rng, self.current_potential_coefficient)
-            
+            epoch_end = datetime.now() - epoch_start
             print('epoch', self.epoch,
                   'atom_rmsd_nm', '%.4E'%last_loss[0], '%.4E'%last_loss[3],
                   'dPotEnr', '%.4E'%last_loss[1], '%.4E'%last_loss[4],
                   'Summation', '%.4E'%last_loss[2], '%.4E'%last_loss[5],
-                  'L=%.4E'%last_loss[6])
+                  'L=%.4E'%last_loss[6], 'Time:', epoch_end)
             self.epoch += 1
         return self.epoch
 
