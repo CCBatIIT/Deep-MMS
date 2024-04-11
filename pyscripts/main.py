@@ -218,6 +218,7 @@ class NN_Experiment():
         model_type = self.json_params["model_type"]
         coordinate_scheme = self.json_params["coordinate_scheme"]
         self.model_name = model_name
+        resume = self.json_params["resume_latest"]
 
         print('Establish Directories')
         #Establish Model Directory
@@ -227,7 +228,7 @@ class NN_Experiment():
         
         #Establish Data Directory
         if self.json_params["data_dir"] == 'None':
-            latent_dir = os.path.join(model_dir, f'{self.n_latents:04d}_latents/')
+            latent_dir = os.path.join(model_dir, f'{self.n_latents:02d}_latents/')
             self.data_dir = os.path.join(latent_dir, f'rpt_{test_slice}/')
             if not os.path.isdir(latent_dir) and make_dirs:
                 os.mkdir(latent_dir)
@@ -257,7 +258,7 @@ class NN_Experiment():
 
         if coordinate_scheme == "BAT":
             print('Running BAT Conversion')
-            import jax_BAT as jax_BAT
+            import pyscripts.jax_BAT as jax_BAT
             import MDAnalysis as mda
             u = mda.Universe(fname_pdb, fname_dcd)
             ag = u.select_atoms("all")
@@ -299,10 +300,14 @@ class NN_Experiment():
         self.current_potential_coefficient = 0
 
         #Checkpointer
+        print('Checkpointer')
         self.orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-        options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=2, create=True)
-        self.checkpoint_manager = orbax.checkpoint.CheckpointManager(os.path.join(self.data_dir, 'checkpoint_managed'), self.orbax_checkpointer, options)
+        options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=2, save_interval_steps=10)
+        manager_dir = os.path.join(self.data_dir, 'checkpoint_managed')
+        self.checkpoint_manager = orbax.checkpoint.CheckpointManager(manager_dir, self.orbax_checkpointer, options)
+
         
+        print('Batch Data')
         num_train = self.train_data.shape[0]
         num_complete_batches, leftover = divmod(num_train, self.batch_size)
         self.num_train_batches = num_complete_batches + bool(leftover)
@@ -314,35 +319,47 @@ class NN_Experiment():
         self.test_batches = Data_stream(self.n_latents, num_test, self.num_test_batches, self.batch_size, self.test_data)
         
         #Initialize data_storage
-        self.nc_data_file = os.path.join(self.data_dir, f'model_{self.model_name}_{self.n_latents:04d}.nc')
-        self.nc_checkpoint_file = os.path.join(self.data_dir, f'model_{self.model_name}_{self.n_latents:04d}_checkpoint.nc')
-        self.rootgrp = self.establish_netcdf(self.nc_data_file)
+        print('Establish NCs')
+        self.nc_data_file = os.path.join(self.data_dir, f'model_{self.model_name}_{self.n_latents:02d}.nc')
+        self.nc_checkpoint_file = os.path.join(self.data_dir, f'model_{self.model_name}_{self.n_latents:02d}_checkpoint.nc')
         
-        print(self.model)
+        #Handle Resuming a Simulation or not
+        if resume:
+            self.rootgrp = self.establish_netcdf(self.nc_data_file, open_mode='a')
+            ckpt_fn = sorted(glob.glob(manager_dir + "/*/default/"))[0]
+            self.epoch = int(ckpt_fn.split(os.sep)[-3]) + 1
+            self.load_model_from_ckpt(ckpt_fn)
+        else:
+            self.rootgrp = self.establish_netcdf(self.nc_data_file)
+        print('Epoch', self.epoch)
+        print('NC', self.rootgrp)
+        print('Model', self.model)
         print("INITIALIZATION COMPLETE")
 
-    def establish_netcdf(self, nc_filename):
-        rootgrp = nc.Dataset(nc_filename, 'w', format='NETCDF4')
-        traingrp = rootgrp.createGroup('Train')
-        testgrp = rootgrp.createGroup('Test')
-
-        traingrp.createDimension('epoch', None)
-        traingrp.createDimension('batch', self.num_train_batches)
-
-        testgrp.createDimension('epoch', None)
-        testgrp.createDimension('batch', self.num_test_batches)
-
-        for grp in [traingrp, testgrp]:
-            rmsd = grp.createVariable('RMSD', 'f4', ('epoch', 'batch',))
-            rmsd.units = "Nanometer"
-            pot = grp.createVariable('Potential', 'f8', ('epoch', 'batch',))
-            pot.units = "KJ/mol"
-            summ = grp.createVariable('Summation', 'f8', ('epoch', 'batch',))
-            summ.units = 'Unitless'
-            grp.history = "Created" + time.ctime(time.time())
-
-        coef = traingrp.createVariable('Potential Coefficient', 'f4', ('epoch',))
-        coef.units = 'Unitless'
+    def establish_netcdf(self, nc_filename, open_mode='w'):
+        rootgrp = nc.Dataset(nc_filename, open_mode, format='NETCDF4')
+        
+        if open_mode == 'w':
+            traingrp = rootgrp.createGroup('Train')
+            testgrp = rootgrp.createGroup('Test')
+        
+            traingrp.createDimension('epoch', None)
+            traingrp.createDimension('batch', self.num_train_batches)
+        
+            testgrp.createDimension('epoch', None)
+            testgrp.createDimension('batch', self.num_test_batches)
+        
+            for grp in [traingrp, testgrp]:
+                rmsd = grp.createVariable('RMSD', 'f4', ('epoch', 'batch',))
+                rmsd.units = "Nanometer"
+                pot = grp.createVariable('Potential', 'f8', ('epoch', 'batch',))
+                pot.units = "KJ/mol"
+                summ = grp.createVariable('Summation', 'f8', ('epoch', 'batch',))
+                summ.units = 'Unitless'
+                grp.history = "Created" + time.ctime(time.time())
+        
+            coef = traingrp.createVariable('Potential Coefficient', 'f4', ('epoch',))
+            coef.units = 'Unitless'
             
         return rootgrp
 
@@ -362,18 +379,12 @@ class NN_Experiment():
                     # copy variable attributes all at once via dictionary
                     dst[grp_name][name].setncatts(grp[name].__dict__)
     
-    def write_model_to_ckpt(self, ckpt_fn=None):
-        if ckpt_fn is None:
-            ckpt_fn = os.path.join(self.data_dir, f'model_ckpt_{self.epoch:06d}.pkl')
-        
-        save_args = orbax_utils.save_args_from_target(self.state)
-        self.orbax_checkpointer.save(ckpt_fn, self.state, save_args=save_args)
-
-    def load_model_from_ckpt(self, chkpt_fn, restore_step):
+    
+    def load_model_from_ckpt(self, chkpt_fn):
         self.state = self.orbax_checkpointer.restore(chkpt_fn, item=self.state)
     
     def write_traj(self, identifier, traj_xyz): #(n conf, n_atoms*3) OR (n conf, n_atoms, 3)
-        fname = self.data_dir + f'{identifier}_{self.model_name}{self.n_latents:04d}.dcd'
+        fname = self.data_dir + f'{identifier}_{self.model_name}{self.n_latents:02d}.dcd'
         
         if traj_xyz.shape[-1] != 3:
             traj_xyz = traj_xyz.reshape(traj_xyz.shape[0], -1, 3)
@@ -516,7 +527,7 @@ class NN_Experiment():
         """
         test_rmsd_decreasing = True
 
-        while test_rmsd_decreasing and self.epoch <= max_epoch:
+        while test_rmsd_decreasing and self.epoch < max_epoch:
             #Training
             self.train_batches_on_step(self.train_batches, rmsd_log_step, self.current_potential_coefficient)
             rng = jax.random.PRNGKey(self.epoch)
@@ -620,7 +631,7 @@ class NN_Experiment():
         
         return self.epoch
 
-    def MAIN_train_rmsd_only(self):
+    def MAIN_train_rmsd_only(self, cutoff_epoch=100000):
         self.train_nepochs_on_rmsd(100)
-        self.train_rmsd_to_lowest()
+        self.train_rmsd_to_lowest(max_epoch=cutoff_epoch)
         return self.epoch
