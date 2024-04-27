@@ -1,4 +1,4 @@
-from rollback import *
+from main import NN_Experiment
 import sys, jax, json, time
 import jax.numpy as jnp
 
@@ -12,4 +12,4 @@ with open(json_fn, 'r') as g:
 experiment = NN_Experiment(json_fn)
 
 #Train RMSD into oblivion
-experiment.MAIN_train_rmsd_only()
+experiment.MAIN_train_rmsd_only(cutoff_epoch=json_params["max_epoch"])
