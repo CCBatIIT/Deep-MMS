@@ -326,7 +326,7 @@ class NN_Experiment():
         #Handle Resuming a Simulation or not
         if resume:
             self.rootgrp = self.establish_netcdf(self.nc_data_file, open_mode='a')
-            ckpt_fn = sorted(glob.glob(manager_dir + "/*/default/"))[0]
+            ckpt_fn = sorted(glob.glob(manager_dir + "/*/default/"))[-1]
             self.epoch = int(ckpt_fn.split(os.sep)[-3]) + 1
             self.load_model_from_ckpt(ckpt_fn)
         else:
@@ -445,14 +445,6 @@ class NN_Experiment():
         most_recent_results.append(self.rootgrp['Train'].variables['Potential Coefficient'][self.epoch])
         
         return most_recent_results
-    
-    #def save_loss_data(self):
-    #    #LOSSES
-    #    loss_names = ['RMSD', 'POTENTIAL', 'SUMM']
-    #    for arr in (self.rmsd_loss, self.pot_enr_loss, self.summ_loss):
-    #        np.save(self.data_dir + f'{self.model_name}{self.n_latents:02d}_{loss_names.pop(0)}.npy', np.array(arr))
-    #    #LAMBDAS
-    #    np.save(self.data_dir + f'{self.model_name}{self.n_latents:02d}_lambdas.npy', np.array(self.potential_coefficients))
     
     def train_batches_on_step(self, batch_set, step_function, potential_coefficient):
         f = iter(batch_set)
@@ -599,7 +591,7 @@ class NN_Experiment():
         print('Scaling Complete')
         return self.epoch
 
-    def train_summation_threshold(self, potential_coefficient=1, potential_threshold=1e-3, num_mov_ave=10):
+    def train_summation_threshold(self, potential_coefficient=1, potential_threshold=1e-3, num_move_ave=10):
         """
         Exactly the same as potential threshold, except the summation step is used instead
         """
@@ -634,4 +626,9 @@ class NN_Experiment():
     def MAIN_train_rmsd_only(self, cutoff_epoch=100000):
         self.train_nepochs_on_rmsd(100)
         self.train_rmsd_to_lowest(max_epoch=cutoff_epoch)
+        return self.epoch
+
+    def MAIN_scale_and_train_potential(self, cutoff_epoch=200000):
+        self.train_scaling_potential()
+        self.train_summation_threshold()
         return self.epoch
