@@ -12,7 +12,8 @@ from flax import linen as nn
 from flax.training import train_state, orbax_utils
 jax.config.update("jax_enable_x64", True)
 
-jax.print_environment_info(), jax.default_backend()
+print(jax.print_environment_info())
+print('Default JAX backend is ', jax.default_backend())
 
 from contextlib import contextmanager,redirect_stderr,redirect_stdout
 from os import devnull
@@ -325,7 +326,7 @@ class NN_Experiment():
         #Checkpointer
         print('Checkpointer')
         self.orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-        options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=2, save_interval_steps=json_params['checkpoint_interval'])
+        options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=2, save_interval_steps=self.json_params['checkpoint_interval'])
         manager_dir = os.path.join(self.data_dir, 'checkpoint_managed')
         self.checkpoint_manager = orbax.checkpoint.CheckpointManager(manager_dir, self.orbax_checkpointer, options)
 
@@ -615,7 +616,7 @@ class NN_Experiment():
         
         return self.epoch
     
-    def train_potential_threshold(self, potential_coefficient=1, potential_threshold=1e-3, num_mov_ave=10):
+    def train_potential_threshold(self, potential_coefficient=1, potential_threshold=1e-3, num_move_ave=10):
         self.current_potential_coefficient = potential_coefficient
         potential_above_threshold = True
         test_potential_decreasing = True
