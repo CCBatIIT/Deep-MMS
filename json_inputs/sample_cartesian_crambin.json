@@ -16,5 +16,7 @@
     "potential_threshold": 0.05,
     "model_type": "AE",
     "coordinate_scheme": "Cartesian",
-    "resume_latest": false
+    "resume_latest": false,
+    "report_potential": true,
+    "checkpoint_interval": 200
 }

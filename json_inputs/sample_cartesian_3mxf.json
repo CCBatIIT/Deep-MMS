@@ -1,7 +1,7 @@
 {
     "fname_dcd": "/ocean/projects/mcb160011p/josephdb/githubs/Deep-MMS/Simulation/decaalanine_1us_split7.dcd",
-    "fname_prmtop": "/ocean/projects/mcb160011p/josephdb/githubs/Deep-MMS/Simulation/ala_deca_peptide.prmtop",
-    "fname_pdb": "None",
+    "fname_prmtop": "/ocean/projects/mcb160011p/josephdb/githubs/Deep-MMS/Simulation/3mxf_protein_ligand.pdb",
+    "fname_pdb": "/ocean/projects/mcb160011p/josephdb/githubs/Deep-MMS/Simulation/3mxf_protein_ligand.pdb",
     "save_dir": "/ocean/projects/mcb160011p/josephdb/githubs/Deep-MMS/",
     "data_dir": "None",
     "max_epoch": 100000,
@@ -9,7 +9,7 @@
     "test_slice": 2,
     "data_slice_start": 0,
     "data_slice_end": "None",
-    "model_name": "DA_AE_Dropout_RMSD_only",
+    "model_name": "3mxf_AE_Dropout_RMSD_only",
     "batch_size": 2000,
     "learning_rate": 1e-06,
     "dropout_rates": [0.1, 0.1, 0.1],
@@ -17,6 +17,6 @@
     "model_type": "AE",
     "coordinate_scheme": "Cartesian",
     "resume_latest": false,
-    "report_potential": true,
+    "report_potential": false,
     "checkpoint_interval": 200
 }
