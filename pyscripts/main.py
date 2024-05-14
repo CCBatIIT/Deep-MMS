@@ -544,7 +544,7 @@ class NN_Experiment():
         potential_above_threshold = True
         test_potential_decreasing = True
 
-        while potential_above_threshold and test_potential_decreasing:
+        while potential_above_threshold or test_potential_decreasing:
             # Training
             self.train_batches_on_step(self.train_batches, potential_step, self.current_potential_coefficient)
             rng = jax.random.PRNGKey(self.epoch)
@@ -568,7 +568,7 @@ class NN_Experiment():
         
         return self.epoch
 
-    def train_scaling_potential(self):
+    def train_scaling_potential(self, beta=1.001):
         """Scale the potential in by frequently changing the coefficient to make potential equal to rmsd"""
         # Every five epochs choose lambda as min(1, max(1.01*lambda[-1], RMSD/NSD))
         while self.current_potential_coefficient < 1:
@@ -587,7 +587,7 @@ class NN_Experiment():
             #Get the next pot_coef every 5 epochs
             if self.epoch % 5 == 0:
                 #Choose the smaller between 1 and x, where x is the larger of (RMSD/Potential, 1% increase in the current coefficient)
-                self.current_potential_coefficient = np.min((1, np.max((1.01*self.current_potential_coefficient, (self.rootgrp['Train'].variables['RMSD'][-5:, :].mean() / self.rootgrp['Train'].variables['Potential'][-5:, :].mean())))))
+                self.current_potential_coefficient = np.min((1, np.max((beta*self.current_potential_coefficient, (self.rootgrp['Train'].variables['RMSD'][-5:, :].mean() / self.rootgrp['Train'].variables['Potential'][-5:, :].mean())))))
         print('Scaling Complete')
         return self.epoch
 
