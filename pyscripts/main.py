@@ -153,6 +153,11 @@ def summation_loss(a, b, potential_coefficient): # LET A BE BATCH AND B BE RECON
     return atom_rmsd(a,b) + potential_coefficient * scaled_pot_enr_diff(a, b)
 
 @jax.jit
+def weighted_summation_loss(a, b, potential_coefficient): # LET A BE BATCH AND B BE RECON
+    # Make this the square root of the mean of the sum of squares of elements
+    return 100*potential_coefficient*atom_rmsd(a,b) + potential_coefficient*scaled_pot_enr_diff(a, b)
+
+@jax.jit
 def rmsd_step(state, batch_x, z_rng, potential_coefficient):
     def loss_fn(params, apply_fn):
         recon_x = apply_fn({'params':params}, batch_x, z_rng)[0]
@@ -184,6 +189,14 @@ def summation_step(state, batch_x, z_rng, potential_coefficient, weights=(1,1)):
     grads = jax.grad(loss_fn)(state.params, state.apply_fn)
     return state.apply_gradients(grads=grads)
 
+@jax.jit
+def weighted_summation_step(state, batch_x, z_rng, potential_coefficient, weights=(1,1)):
+    def loss_fn(params, apply_fn):
+        recon_x = apply_fn({'params':params}, batch_x, z_rng)[0]
+        return weighted_summation_loss(batch_x, recon_x, potential_coefficient).mean()
+    grads = jax.grad(loss_fn)(state.params, state.apply_fn)
+    return state.apply_gradients(grads=grads)
+    
 class NN_Experiment():
     def __init__(self, json_fn, make_dirs=True, from_json_params=False):
         """
@@ -384,7 +397,7 @@ class NN_Experiment():
                 grp.history = "Created" + time.ctime(time.time())
             
             if self.report_potential:
-                coef = traingrp.createVariable('Potential Coefficient', 'f4', ('epoch',))
+                coef = traingrp.createVariable('Potential Coefficient', 'f8', ('epoch',))
                 coef.units = 'Unitless'
             
         return rootgrp
@@ -648,6 +661,7 @@ class NN_Experiment():
     def train_scaling_potential(self):
         """Scale the potential in by frequently changing the coefficient to make potential equal to rmsd"""
         # Every five epochs choose lambda as min(1, max(1.01*lambda[-1], RMSD/NSD))
+        print('Train Scaling Potential')
         while self.current_potential_coefficient < 1:
             # Training
             self.train_batches_on_step(self.train_batches, summation_step, self.current_potential_coefficient)
@@ -655,16 +669,16 @@ class NN_Experiment():
             rng, key = jax.random.split(rng)
             #After all batches seen this epoch
             last_loss = self.eval_losses(rng, self.current_potential_coefficient)
-            print('epoch', self.epoch,
-                  'atom_rmsd_nm', '%.4E'%last_loss[0], '%.4E'%last_loss[3],
-                  'dPotEnr', '%.4E'%last_loss[1], '%.4E'%last_loss[4],
-                  'Summation', '%.4E'%last_loss[2], '%.4E'%last_loss[5],
-                  'L=%.4E'%last_loss[6])
             self.epoch += 1
             #Get the next pot_coef every 5 epochs
             if self.epoch % 5 == 0:
                 #Choose the smaller between 1 and x, where x is the larger of (RMSD/Potential, 1% increase in the current coefficient)
                 self.current_potential_coefficient = np.min((1, np.max((1.01*self.current_potential_coefficient, (self.rootgrp['Train'].variables['RMSD'][-5:, :].mean() / self.rootgrp['Train'].variables['Potential'][-5:, :].mean())))))
+                print('epoch', self.epoch,
+                      'atom_rmsd_nm', '%.4E'%last_loss[0], '%.4E'%last_loss[3],
+                      'dPotEnr', '%.4E'%last_loss[1], '%.4E'%last_loss[4],
+                      'Summation', '%.4E'%last_loss[2], '%.4E'%last_loss[5],
+                      'L=%.4E'%last_loss[6])
         print('Scaling Complete')
         return self.epoch
 
@@ -672,13 +686,14 @@ class NN_Experiment():
         """
         Exactly the same as potential threshold, except the summation step is used instead
         """
+        print('Train Summation Threshold')
         self.current_potential_coefficient = potential_coefficient
         potential_above_threshold = True
         test_potential_decreasing = True
 
         while potential_above_threshold or test_potential_decreasing:
             # Training
-            self.train_batches_on_step(self.train_batches, summation_step, self.current_potential_coefficient)
+            self.train_batches_on_step(self.train_batches, weighted_summation_step, self.current_potential_coefficient)
             rng = jax.random.PRNGKey(self.epoch)
             rng, key = jax.random.split(rng)
             #After all batches seen this epoch
@@ -710,7 +725,8 @@ class NN_Experiment():
         self.train_rmsd_to_lowest_wo_reporting_potential(max_epoch=cutoff_epoch)
         return self.epoch
 
-    def MAIN_scale_and_train_potential(self, cutoff_epoch=200000):
+    def MAIN_scale_and_train_potential(self, n_rmsd=500, cutoff_epoch=200000):
+        self.train_nepochs_on_rmsd(n_rmsd)
         self.train_scaling_potential()
-        self.train_summation_threshold()
+        self.train_summation_threshold(potential_threshold=self.json_params["potential_threshold"])
         return self.epoch
