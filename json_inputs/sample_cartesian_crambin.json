@@ -9,12 +9,14 @@
     "test_slice": 2,
     "data_slice_start": 0,
     "data_slice_end": "None",
-    "model_name": "Crambin_AE_Dropout_RMSD_only",
+    "model_name": "Crambin_AE_Dropout_RMSD_and_Scale",
     "batch_size": 1000,
     "learning_rate": 1e-06,
     "dropout_rates": [0.1, 0.1, 0.1],
-    "potential_threshold": 0.05,
+    "potential_threshold": 10,
     "model_type": "AE",
     "coordinate_scheme": "Cartesian",
-    "resume_latest": false
+    "resume_latest": false,
+    "report_potential": true,
+    "checkpoint_interval": 200
 }

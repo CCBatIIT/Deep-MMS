@@ -263,30 +263,41 @@ class NN_Experiment_Analyzer():
         self.rootgrp = nc.Dataset(netcdf_fn, 'r', format='NETCDF4')
         self.state = orbax.checkpoint.PyTreeCheckpointer().restore(checkpoint_dir, item=self.state)
 
-    def plot_results(self, print_only=False, yscale=None, xscale=None):
+    def plot_results(self, print_only=False, yscale=None, xscale=None, ylim=None, xlim=None):
         
         traingrp = self.rootgrp['Train']
         testgrp = self.rootgrp['Test']
-        keys = ['RMSD', 'Potential']
+        keys = ['RMSD', 'Potential', 'Summation', 'Potential Coefficient']
         if not print_only:
             for foo in keys:
                 plt.clf()
                 plt.title(foo + f' {self.n_latents} Latents')
-                for grp in [traingrp, testgrp]:
-                    _ = plt.plot(np.arange(grp.variables[foo][:, :].shape[0]),
-                                 np.mean(grp.variables[foo][:, :], axis=1))
+                if foo != 'Potential Coefficient':
+                    for grp in [traingrp, testgrp]:
+                        _ = plt.plot(np.arange(grp.variables[foo][:, :].shape[0]),
+                                     np.mean(grp.variables[foo][:, :], axis=1))
+                else:
+                    _ = plt.plot(np.arange(traingrp.variables[foo][:].shape[0]),
+                                 traingrp.variables[foo][:])
                 plt.xlabel('Epoch')
                 if foo == 'Potential':
                     plt.yscale('log')
-                    plt.ylabel('Potential (kJ/mol)')
+                    plt.ylabel('Potential Deviation (%Dev**2)')
                 
                 elif foo == 'RMSD':
                     plt.ylabel('RMSD (nm)')
+
+                elif foo == 'Summation':
+                    plt.yscale('log')
     
                 if xscale:
                     plt.xscale(xscale)
                 if yscale:
                     plt.yscale(yscale)
+                if xlim:
+                    plt.xlim(xlim)
+                if ylim:
+                    plt.ylim(ylim)
                 
                 plt.legend(['Train','Test'])
                 plt.show()

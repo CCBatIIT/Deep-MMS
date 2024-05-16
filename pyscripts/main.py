@@ -1,7 +1,6 @@
 import jax, optax, sys, os, json, pickle, time, glob
 from datetime import datetime
 import orbax.checkpoint
-import jax_amber3 as jaa
 import numpy as np
 import numpy.random as npr
 import matplotlib.pyplot as plt
@@ -10,9 +9,15 @@ import netCDF4 as nc
 import jax.numpy as jnp
 from flax import linen as nn 
 from flax.training import train_state, orbax_utils
+try:
+    import jax_amber3 as jaa
+except:
+    from . import jax_amber3 as jaa
+
 jax.config.update("jax_enable_x64", True)
 
-jax.print_environment_info(), jax.default_backend()
+print(jax.print_environment_info())
+print('Default JAX backend is ', jax.default_backend())
 
 from contextlib import contextmanager,redirect_stderr,redirect_stdout
 from os import devnull
@@ -152,6 +157,11 @@ def summation_loss(a, b, potential_coefficient): # LET A BE BATCH AND B BE RECON
     return atom_rmsd(a,b) + potential_coefficient * scaled_pot_enr_diff(a, b)
 
 @jax.jit
+def weighted_summation_loss(a, b, potential_coefficient): # LET A BE BATCH AND B BE RECON
+    # Make this the square root of the mean of the sum of squares of elements
+    return 100*potential_coefficient*atom_rmsd(a,b) + potential_coefficient*scaled_pot_enr_diff(a, b)
+
+@jax.jit
 def rmsd_step(state, batch_x, z_rng, potential_coefficient):
     def loss_fn(params, apply_fn):
         recon_x = apply_fn({'params':params}, batch_x, z_rng)[0]
@@ -183,16 +193,45 @@ def summation_step(state, batch_x, z_rng, potential_coefficient, weights=(1,1)):
     grads = jax.grad(loss_fn)(state.params, state.apply_fn)
     return state.apply_gradients(grads=grads)
 
+@jax.jit
+def weighted_summation_step(state, batch_x, z_rng, potential_coefficient, weights=(1,1)):
+    def loss_fn(params, apply_fn):
+        recon_x = apply_fn({'params':params}, batch_x, z_rng)[0]
+        return weighted_summation_loss(batch_x, recon_x, potential_coefficient).mean()
+    grads = jax.grad(loss_fn)(state.params, state.apply_fn)
+    return state.apply_gradients(grads=grads)
+    
 class NN_Experiment():
     def __init__(self, json_fn, make_dirs=True, from_json_params=False):
         """
-        n_latents: int: number of latent dimensions
-        coord_set: jnp.array(): data from which both test and train set will be derived
-        test_slice: int in (0,1,2,3,4): which 80/20 slice of coord_set to take for test and train
-        data_dir: string: directory (with trailing slash) in which to store all output data, images, etc.
-        batch_size: int: default 400; number of frames in a training batch
-        learning_rate: float: default 1e-4; optax adam learning rate
-        dropout_rates: list of floats: encoder and decoder dropout rates forward for encoder and reverse for decoder
+
+        INIT PARAMETERS:
+            json_fn: string or dict: if string, set from_json_params to False, and provide the json file name as a string
+                                     if dict, set from_json_params to True, and provide the parameters as json_fn
+            make_dirs: bool: 
+        
+        JSON PARAMETERS:
+            fname_dcd: string: DCD File to obtain coordinates from
+            fname_prmtop: string: topology file for energy function (can be pdb file if "report_potential" is false)
+            fname_pdb: string: PDB file to be used for BAT coordinate conversions
+            save_dir: string: Directory to save the output (A series of directories are built in this)
+            data_dir: string: Specific data directory to save output (bypasses save_dir option - default "None")
+            max_epoch: int: Cutoff epoch (no step will run beyond this epoch)
+            latent_dim: int: Number of latent dimensions for the model
+            test_slice: int: Can be integer 0 to 4 inclusive, which slice of every five frames to make the test set
+            data_slice_start: int: first (index) frame to build the testing/training data from
+            data_slice_end: int or string="None": last (index) frame to build the testing/training data from
+            model_name: string: Identifier for this model
+            batch_size: int: size of individual batches, (best practice is test_set_size % batch_size == 0)
+            learning_rate: float: learning rate for the optimizer
+            dropout_rates: [float]: 3-list of floats for the dropout rate of dropout layers (Dropout rate = 1 - retention_rate) (use zero for no dropout)
+            potential_threshold: float: Threshold of potential energy deviation to declare training complete
+            model_type: string in ["VAE", "AE"]: Whether to use a Variational AutoEncoder or an AutoEncoder
+                                                    Dropout rates not recommended for VAE
+            coordinate_scheme: string in ["BAT", "Cartesian"]: Coordinate Scheme (fname_pdb must not be None for "BAT")
+            resume_latest: bool: if True, will attempt to reload a previous model
+            report_potential: bool: if True, potential energy deviation of batches will be evaluated and stored in the netcdf file
+            checkpoint_interval: int: Number of epochs in between checkpoints (save the NN every checkpoint_interval epochs)
         """
         #Get the information from the json file
         if not from_json_params:
@@ -219,6 +258,7 @@ class NN_Experiment():
         coordinate_scheme = self.json_params["coordinate_scheme"]
         self.model_name = model_name
         resume = self.json_params["resume_latest"]
+        self.report_potential = self.json_params["report_potential"]
 
         print('Establish Directories')
         #Establish Model Directory
@@ -247,9 +287,10 @@ class NN_Experiment():
         c = c.superpose(c) # FEED IN ALIGNED DATA
         coord_set = jnp.array(c.xyz.reshape(c.xyz.shape[0], -1))[data_start:data_end]
         num_samples, input_size = coord_set.shape
-        
-        global gas_fun
-        gas_fun, _ = jaa.get_amber_functions(fname_prmtop)
+
+        if self.report_potential:
+            global gas_fun
+            gas_fun, _ = jaa.get_amber_functions(fname_prmtop)
         
         #Change Coordinates to BAT if desired
         print('Coordinates')
@@ -302,7 +343,7 @@ class NN_Experiment():
         #Checkpointer
         print('Checkpointer')
         self.orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
-        options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=2, save_interval_steps=10)
+        options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=2, save_interval_steps=self.json_params['checkpoint_interval'])
         manager_dir = os.path.join(self.data_dir, 'checkpoint_managed')
         self.checkpoint_manager = orbax.checkpoint.CheckpointManager(manager_dir, self.orbax_checkpointer, options)
 
@@ -326,7 +367,7 @@ class NN_Experiment():
         #Handle Resuming a Simulation or not
         if resume:
             self.rootgrp = self.establish_netcdf(self.nc_data_file, open_mode='a')
-            ckpt_fn = sorted(glob.glob(manager_dir + "/*/default/"))[0]
+            ckpt_fn = sorted(glob.glob(manager_dir + "/*/default/"))[-1]
             self.epoch = int(ckpt_fn.split(os.sep)[-3]) + 1
             self.load_model_from_ckpt(ckpt_fn)
         else:
@@ -352,14 +393,16 @@ class NN_Experiment():
             for grp in [traingrp, testgrp]:
                 rmsd = grp.createVariable('RMSD', 'f4', ('epoch', 'batch',))
                 rmsd.units = "Nanometer"
-                pot = grp.createVariable('Potential', 'f8', ('epoch', 'batch',))
-                pot.units = "KJ/mol"
-                summ = grp.createVariable('Summation', 'f8', ('epoch', 'batch',))
-                summ.units = 'Unitless'
+                if self.report_potential:
+                    pot = grp.createVariable('Potential', 'f8', ('epoch', 'batch',))
+                    pot.units = "KJ/mol"
+                    summ = grp.createVariable('Summation', 'f8', ('epoch', 'batch',))
+                    summ.units = 'Unitless'
                 grp.history = "Created" + time.ctime(time.time())
-        
-            coef = traingrp.createVariable('Potential Coefficient', 'f4', ('epoch',))
-            coef.units = 'Unitless'
+            
+            if self.report_potential:
+                coef = traingrp.createVariable('Potential Coefficient', 'f8', ('epoch',))
+                coef.units = 'Unitless'
             
         return rootgrp
 
@@ -419,6 +462,14 @@ class NN_Experiment():
         
         return vals
         
+    def eval_rmsd_only(self, rng):
+        self.rootgrp['Train'].variables['RMSD'][self.epoch, :] = jnp.mean(self.eval_batches(self.train_batches, atom_rmsd, None), axis=1)
+        self.rootgrp['Test'].variables['RMSD'][self.epoch, :] = jnp.mean(self.eval_batches(self.test_batches, atom_rmsd, None), axis=1)
+        most_recent_results = []
+        for grp in (self.rootgrp['Train'], self.rootgrp['Test']):
+            most_recent_results.append(grp.variables['RMSD'][self.epoch, :].mean())
+        return most_recent_results
+        
     def eval_losses(self, rng, potential_coefficient):
         """
         Shape of return is train_rmsd, train_potential, train_summ, test_rmsd, test_potential, test_summ, lambda
@@ -446,14 +497,6 @@ class NN_Experiment():
         
         return most_recent_results
     
-    #def save_loss_data(self):
-    #    #LOSSES
-    #    loss_names = ['RMSD', 'POTENTIAL', 'SUMM']
-    #    for arr in (self.rmsd_loss, self.pot_enr_loss, self.summ_loss):
-    #        np.save(self.data_dir + f'{self.model_name}{self.n_latents:02d}_{loss_names.pop(0)}.npy', np.array(arr))
-    #    #LAMBDAS
-    #    np.save(self.data_dir + f'{self.model_name}{self.n_latents:02d}_lambdas.npy', np.array(self.potential_coefficients))
-    
     def train_batches_on_step(self, batch_set, step_function, potential_coefficient):
         f = iter(batch_set)
         for i in range(batch_set.num_batches):
@@ -469,6 +512,49 @@ class NN_Experiment():
         if self.epoch > 0 and self.epoch % 100 == 0:
             self.checkpoint_netcdf()
         
+    def train_nepochs_on_rmsd_wo_reporting_potential(self, num_rmsd_epochs):
+        while self.epoch < num_rmsd_epochs:
+            epoch_start = datetime.now()
+            #Training
+            self.train_batches_on_step(self.train_batches, rmsd_step, self.current_potential_coefficient)
+            rng = jax.random.PRNGKey(self.epoch)
+            rng, key = jax.random.split(rng)
+            #After all batches seen this epoch
+            last_loss = self.eval_rmsd_only(rng)
+            epoch_end = datetime.now() - epoch_start
+            print('epoch', self.epoch,
+                  'atom_rmsd_nm', '%.4E'%last_loss[0], '%.4E'%last_loss[1],
+                  'Time:', epoch_end)
+            self.epoch += 1
+        return self.epoch
+    
+    def train_rmsd_to_lowest_wo_reporting_potential(self, max_epoch=100000):
+        """Train on the RMSD until overtraining is deteceted
+            Stop training if the RMSD_loss of the test set is rising
+        """
+        test_rmsd_decreasing = True
+
+        while test_rmsd_decreasing and self.epoch < max_epoch:
+            epoch_start = datetime.now()
+            #Training
+            self.train_batches_on_step(self.train_batches, rmsd_step, self.current_potential_coefficient)
+            rng = jax.random.PRNGKey(self.epoch)
+            rng, key = jax.random.split(rng)
+            #After all batches seen this epoch
+            last_loss = self.eval_rmsd_only(rng)
+            epoch_end = datetime.now() - epoch_start
+            print('epoch', self.epoch,
+                  'atom_rmsd_nm', '%.4E'%last_loss[0], '%.4E'%last_loss[1],
+                  'Time:', epoch_end)
+            self.epoch += 1
+            
+            test_rmsd_decreasing = np.polyfit(np.arange(100), np.mean(self.rootgrp['Test']['RMSD'][-100:, :], axis=1), 1)[0] < 0
+
+        if not test_rmsd_decreasing:
+            print('RMSD Lowest Run - Break Reason - Test Set Loss Increasing')
+        
+        return self.epoch
+    
     def train_nepochs_on_rmsd(self, num_rmsd_epochs):
         """
         Train on the RMSD function alone, potential coefficient is zero
@@ -547,12 +633,12 @@ class NN_Experiment():
         
         return self.epoch
     
-    def train_potential_threshold(self, potential_coefficient=1, potential_threshold=1e-3, num_mov_ave=10):
+    def train_potential_threshold(self, potential_coefficient=1, potential_threshold=1e-3, num_move_ave=10):
         self.current_potential_coefficient = potential_coefficient
         potential_above_threshold = True
         test_potential_decreasing = True
 
-        while potential_above_threshold and test_potential_decreasing:
+        while potential_above_threshold or test_potential_decreasing:
             # Training
             self.train_batches_on_step(self.train_batches, potential_step, self.current_potential_coefficient)
             rng = jax.random.PRNGKey(self.epoch)
@@ -579,6 +665,7 @@ class NN_Experiment():
     def train_scaling_potential(self):
         """Scale the potential in by frequently changing the coefficient to make potential equal to rmsd"""
         # Every five epochs choose lambda as min(1, max(1.01*lambda[-1], RMSD/NSD))
+        print('Train Scaling Potential')
         while self.current_potential_coefficient < 1:
             # Training
             self.train_batches_on_step(self.train_batches, summation_step, self.current_potential_coefficient)
@@ -586,30 +673,31 @@ class NN_Experiment():
             rng, key = jax.random.split(rng)
             #After all batches seen this epoch
             last_loss = self.eval_losses(rng, self.current_potential_coefficient)
-            print('epoch', self.epoch,
-                  'atom_rmsd_nm', '%.4E'%last_loss[0], '%.4E'%last_loss[3],
-                  'dPotEnr', '%.4E'%last_loss[1], '%.4E'%last_loss[4],
-                  'Summation', '%.4E'%last_loss[2], '%.4E'%last_loss[5],
-                  'L=%.4E'%last_loss[6])
             self.epoch += 1
             #Get the next pot_coef every 5 epochs
             if self.epoch % 5 == 0:
                 #Choose the smaller between 1 and x, where x is the larger of (RMSD/Potential, 1% increase in the current coefficient)
                 self.current_potential_coefficient = np.min((1, np.max((1.01*self.current_potential_coefficient, (self.rootgrp['Train'].variables['RMSD'][-5:, :].mean() / self.rootgrp['Train'].variables['Potential'][-5:, :].mean())))))
+                print('epoch', self.epoch,
+                      'atom_rmsd_nm', '%.4E'%last_loss[0], '%.4E'%last_loss[3],
+                      'dPotEnr', '%.4E'%last_loss[1], '%.4E'%last_loss[4],
+                      'Summation', '%.4E'%last_loss[2], '%.4E'%last_loss[5],
+                      'L=%.4E'%last_loss[6])
         print('Scaling Complete')
         return self.epoch
 
-    def train_summation_threshold(self, potential_coefficient=1, potential_threshold=1e-3, num_mov_ave=10):
+    def train_summation_threshold(self, potential_coefficient=1, potential_threshold=1e-3, num_move_ave=10):
         """
         Exactly the same as potential threshold, except the summation step is used instead
         """
+        print('Train Summation Threshold')
         self.current_potential_coefficient = potential_coefficient
         potential_above_threshold = True
         test_potential_decreasing = True
 
-        while potential_above_threshold and test_potential_decreasing:
+        while potential_above_threshold or test_potential_decreasing:
             # Training
-            self.train_batches_on_step(self.train_batches, summation_step, self.current_potential_coefficient)
+            self.train_batches_on_step(self.train_batches, weighted_summation_step, self.current_potential_coefficient)
             rng = jax.random.PRNGKey(self.epoch)
             rng, key = jax.random.split(rng)
             #After all batches seen this epoch
@@ -631,7 +719,18 @@ class NN_Experiment():
         
         return self.epoch
 
-    def MAIN_train_rmsd_only(self, cutoff_epoch=100000):
-        self.train_nepochs_on_rmsd(100)
+    def MAIN_train_rmsd_only(self, n_rmsd=1000, cutoff_epoch=100000):
+        self.train_nepochs_on_rmsd(n_rmsd)
         self.train_rmsd_to_lowest(max_epoch=cutoff_epoch)
+        return self.epoch
+
+    def MAIN_train_rmsd_only_wo_reporting_potential(self, n_rmsd=1000, cutoff_epoch=100000):
+        self.train_nepochs_on_rmsd_wo_reporting_potential(n_rmsd)
+        self.train_rmsd_to_lowest_wo_reporting_potential(max_epoch=cutoff_epoch)
+        return self.epoch
+
+    def MAIN_scale_and_train_potential(self, n_rmsd=500, cutoff_epoch=200000):
+        self.train_nepochs_on_rmsd(n_rmsd)
+        self.train_scaling_potential()
+        self.train_summation_threshold(potential_threshold=self.json_params["potential_threshold"])
         return self.epoch
