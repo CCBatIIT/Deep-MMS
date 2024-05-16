@@ -1,7 +1,6 @@
 import jax, optax, sys, os, json, pickle, time, glob
 from datetime import datetime
 import orbax.checkpoint
-import jax_amber3 as jaa
 import numpy as np
 import numpy.random as npr
 import matplotlib.pyplot as plt
@@ -10,6 +9,11 @@ import netCDF4 as nc
 import jax.numpy as jnp
 from flax import linen as nn 
 from flax.training import train_state, orbax_utils
+try:
+    import jax_amber3 as jaa
+except:
+    from . import jax_amber3 as jaa
+
 jax.config.update("jax_enable_x64", True)
 
 print(jax.print_environment_info())
@@ -524,7 +528,7 @@ class NN_Experiment():
             self.epoch += 1
         return self.epoch
     
-    def train_rmsd_to_lowest_wo_reporting_potential(self, num_move_ave=20, max_epoch=100000):
+    def train_rmsd_to_lowest_wo_reporting_potential(self, max_epoch=100000):
         """Train on the RMSD until overtraining is deteceted
             Stop training if the RMSD_loss of the test set is rising
         """
@@ -544,7 +548,7 @@ class NN_Experiment():
                   'Time:', epoch_end)
             self.epoch += 1
             
-            test_rmsd_decreasing = self.rootgrp['Test']['RMSD'][-2*num_move_ave:-num_move_ave, :].mean() > self.rootgrp['Test']['RMSD'][-num_move_ave:, :].mean()
+            test_rmsd_decreasing = np.polyfit(np.arange(100), np.mean(self.rootgrp['Test']['RMSD'][-100:, :], axis=1), 1)[0] < 0
 
         if not test_rmsd_decreasing:
             print('RMSD Lowest Run - Break Reason - Test Set Loss Increasing')
