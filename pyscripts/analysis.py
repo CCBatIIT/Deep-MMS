@@ -282,10 +282,13 @@ class NN_Experiment_Analyzer():
                 plt.xlabel('Epoch')
                 if foo == 'Potential':
                     plt.yscale('log')
-                    plt.ylabel('Potential (kJ/mol)')
+                    plt.ylabel('Potential Deviation (%Dev**2)')
                 
                 elif foo == 'RMSD':
                     plt.ylabel('RMSD (nm)')
+
+                elif foo == 'Summation':
+                    plt.yscale('log')
     
                 if xscale:
                     plt.xscale(xscale)
