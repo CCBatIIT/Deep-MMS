@@ -288,9 +288,16 @@ class NN_Experiment():
         coord_set = jnp.array(c.xyz.reshape(c.xyz.shape[0], -1))[data_start:data_end]
         num_samples, input_size = coord_set.shape
 
+        global gas_fun
         if self.report_potential:
-            global gas_fun
-            gas_fun, _ = jaa.get_amber_functions(fname_prmtop)
+            if fname_prmtop.endswith('prmtop'):
+                import jax_amber3 as jaa
+                gas_fun, _ = jaa.get_amber_functions(fname_prmtop)
+            elif fname_prmtop.endswith('pdb'):
+                import jax_openmm as jaa
+                gas_fun, _ = jaa.get_openmm_energy_functions(fname_prmtop)
+            else:
+                raise Exception('Gas Function must be obtained from prmtop or pdb')
         
         #Change Coordinates to BAT if desired
         print('Coordinates')

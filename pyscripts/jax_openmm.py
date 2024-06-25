@@ -248,7 +248,9 @@ def get_openmm_energy_functions(in_file_fn, forcefields='Default', mode='SUM'):
     Parameters:
         in_file_fn: string: .pdb or .xml file
     """
-    if in_file_fn.endswith('.pdb'):
+    if type(in_file_fn) == System:
+        sys = in_file_fn
+    elif in_file_fn.endswith('.pdb'):
         if forcefields == 'Default':
             ff = ForceField('amber14/protein.ff14SB.xml')
         elif type(forcefields) == list:
@@ -260,6 +262,7 @@ def get_openmm_energy_functions(in_file_fn, forcefields='Default', mode='SUM'):
     elif in_file_fn.endswith('.xml'):
         with open(in_file_fn, 'r') as f:
             sys = XmlSerializer.deserialize(f.read())
+            assert type(sys) == System
     else:
         raise Exception('pdb or xml file required')
 

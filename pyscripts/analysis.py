@@ -210,7 +210,11 @@ class NN_Experiment_Analyzer():
         coordinate_scheme = self.json_params["coordinate_scheme"]
         self.model_name = model_name
         resume = self.json_params["resume_latest"]
-
+        try:
+            self.report_potential = self.json_params["report_potential"]
+        except:
+            self.report_potential = True
+        
         #Load and Align
         print('Load Data with MDTraj')
         c = md.load(fname_dcd, top=fname_prmtop)
@@ -218,9 +222,10 @@ class NN_Experiment_Analyzer():
         coord_set = jnp.array(c.xyz.reshape(c.xyz.shape[0], -1))
         num_samples, input_size = coord_set.shape
         
-        global gas_fun
-        gas_fun, _ = jaa.get_amber_functions(fname_prmtop)
-
+        if self.report_potential:
+            global gas_fun
+            gas_fun, _ = jaa.get_amber_functions(fname_prmtop)
+        
         #make test and train sets
         print('Batch data')
         test_indices = np.array(range(test_slice, num_samples, 5)) #every fifth frame
