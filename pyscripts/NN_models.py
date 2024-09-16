@@ -3,7 +3,7 @@ import flax
 import flax.linen as nn
 
 ##############################################################################
-# Last Amended February 12, 2024 
+# Last Amended September 11, 2024
 #      Author J.A.DePaolo-Boisvert
 ##############################################################################
 # A module for variable creation of AutoEncoders
@@ -12,33 +12,17 @@ import flax.linen as nn
 # shown below.  hidden layers is typically chosen to be the same
 # as the input size, making all Dense Layers except those immediately
 # adjacent to the latents square matrix transformations
-#     "training" : {
-#        "arch" : {
-#            "latent_dim" : 7,
-#            "dropout_rates" : [0.2, 0.2, 0.2],
-#            "hidden_layers" : [306, 306, 306],
-#            "net_layers" : ["flax.linen.Dense", "flax.linen.Dense", "flax.linen.Dense", "flax.linen.Dense"],
-#            "activators" : ["flax.linen.relu", "flax.linen.relu", "flax.linen.relu", "flax.linen.relu"]},
-#
-#  The above example would create an encoding decoding pair with
-#    following passthrough
-#    Encoder: Input -> (Input_size)Dense(306) -> Relu -> (306)Dense(306) ->
-#             Relu -> (306)Dense(306) -> Relu -> (306)Dense(7) -> ReLu -> Latent Data
-#    Decoder: Latent Data -> (7)Dense(306) -> Relu -> (306)Dense(306) -> Relu ->
-#             (306)Dense(306) -> Relu -> (306)Dense(Input_Size) -> ReLu -> Output
-#
 ##############################################################################
 
-
 #Batching data 
-class DataStream():
+class Data_stream():
     def __init__(self, rng_seed, num_total, num_batches, batch_size, data):
         self.rng_seed = rng_seed
         self.num_total = num_total
         self.num_batches = num_batches
         self.batch_size = batch_size
         self.data = data
-
+        
     def __iter__(self):
         rng = npr.RandomState(self.rng_seed)
         while True:
@@ -47,51 +31,92 @@ class DataStream():
                 batch_idx = perm[i * self.batch_size:(i + 1) * self.batch_size]
                 yield self.data[batch_idx]
 
+#Main Use Classes
 class Encoder(nn.Module):
     d_hidden: list
-    latent_size: int
-    activators: list
-    layer_ops: list
+    latents: int
     dropout_rates: list
-        
+
     @nn.compact
     def __call__(self, x):
         for i in range(len(self.d_hidden)):
-            x = self.activators[i](self.layer_ops[i](self.d_hidden[i])(x))
+            x = nn.relu(nn.Dense(self.d_hidden[i])(x))
             x = nn.Dropout(rate=self.dropout_rates[i])(x, deterministic=True)
-        x = self.activators[-1](self.layer_ops[-1](self.latent_size)(x))
+        x = nn.Dense(self.latents, name='f5')(x)
         return x
-
+    
 class Decoder(nn.Module):
     d_hidden: list
-    output_size: int
-    activators: list
-    layer_ops: list
+    out_dim: int
     dropout_rates: list
 
     @nn.compact
     def __call__(self, z):
         for i in range(len(self.d_hidden))[::-1]:
-            z = self.activators[i](self.layer_ops[i](self.d_hidden[i])(z))
+            z = nn.relu(nn.Dense(self.d_hidden[i])(z))
             z = nn.Dropout(rate=self.dropout_rates[i])(z, deterministic=True)
-        z = self.activators[0](self.layer_ops[0](self.output_size)(z))
+        z = nn.Dense(self.out_dim, name='f5')(z)
         return z
-
-class AutoEncoder(nn.Module):
+        
+class AE(nn.Module):
     input_size: int
-    n_latents: int
-    hidden_layers: list
-    activators: list
-    layer_ops: list
+    hidden_layers: tuple
     dropout_rates: list
+    latents: int
 
     def setup(self):
-        self.encoder = Encoder(self.hidden_layers, self.n_latents, self.activators, self.layer_ops, self.dropout_rates)
-        self.decoder = Decoder(self.hidden_layers, self.input_size, self.activators, self.layer_ops, self.dropout_rates)
-
+        self.encoder = Encoder(list(self.hidden_layers), self.latents, self.dropout_rates)
+        self.decoder = Decoder(list(self.hidden_layers), self.input_size, self.dropout_rates)
+    
     def __call__(self, x, z_rng):
         z_latent = self.encoder(x)
         return self.decoder(z_latent), z_latent
-
+    
+    def encode(self, x, z_rng):
+        return self.encoder(x)
+    
     def decode(self, z, z_rng):
         return self.decoder(z)
+        
+#Extra (Not in Use Classes)
+class V_Encoder(nn.Module):
+    d_hidden: list
+    latents: int
+    dropout_rates: list
+    
+    @nn.compact
+    def __call__(self, x):
+        for i in range(len(self.d_hidden)):
+            x = nn.relu(nn.Dense(self.d_hidden[i])(x))
+            x = nn.Dropout(rate=self.dropout_rates[i])(x, deterministic=True)
+        mean_x = nn.Dense(self.latents, name='fc5_mean')(x)
+        logvar_x = nn.Dense(self.latents, name='fc5_logvar')(x)
+        return mean_x, logvar_x 
+
+class VAE(nn.Module):
+    input_size: int
+    hidden_layers: tuple
+    dropout_rates: list
+    latents: int
+        
+    def setup(self):
+        self.encoder = V_Encoder(list(self.hidden_layers), self.latents, self.dropout_rates)
+        self.decoder = Decoder(list(self.hidden_layers), self.input_size, self.dropout_rates)
+
+    def __call__(self, x, z_rng):
+        z_mean, z_logvar = self.encoder(x)
+        z = reparameterize(z_rng, z_mean, z_logvar)
+        return self.decoder(z), z_mean, z_logvar
+    
+    def construct(self, z_mean, z_logvar, z_rng):
+        z = reparameterize(z_rng, z_mean, z_logvar)
+        return self.decoder(z)
+    
+    def encode(self, x, z_rng):
+        return self.encoder(x)
+    
+    def decode(self, z, z_rng):
+        return self.decoder(z)
+    
+    def mvn_latent_model(self, x, z_rng):
+        return NotImplemented()
