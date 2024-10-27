@@ -140,11 +140,6 @@ class NN_Experiment():
             data_end = None
         
         #Load and Align
-        print('Load Data with MDTraj')
-        c = md.load(fname_dcd, top=fname_prmtop)
-        c = c.superpose(c) # FEED IN ALIGNED DATA
-        coord_set = jnp.array(c.xyz.reshape(c.xyz.shape[0], -1))[data_start:data_end]
-        num_samples, input_size = coord_set.shape
 
         global gas_fun
         if self.report_potential:
@@ -155,6 +150,7 @@ class NN_Experiment():
                 except:
                     from . import jax_amber3 as jaa
                 gas_fun, _ = jaa.get_amber_functions(fname_prmtop)
+                c = md.load(fname_dcd, top=fname_prmtop)
             elif fname_prmtop.endswith('pdb'):
                 #Jax Amber
                 try:
@@ -162,6 +158,11 @@ class NN_Experiment():
                 except:
                     from . import jax_openmm as jaa
                 gas_fun, _ = jaa.get_openmm_energy_functions(fname_prmtop)
+                c = md.load(fname_dcd, top=fname_prmtop)
+            elif fname_prmtop.endswith('xml'):
+                import jax_openmm as jaa
+                gas_fun, _ = jaa.get_openmm_energy_functions(fname_prmtop)
+                c = md.load(fname_dcd, top=fname_pdb)
             else:
                 raise Exception('Gas Function must be obtained from prmtop or pdb')
 
@@ -172,6 +173,11 @@ class NN_Experiment():
         except:
             from . import loss as loss
         
+        print('Load Data with MDTraj')
+        c = c.superpose(c) # FEED IN ALIGNED DATA
+        coord_set = jnp.array(c.xyz.reshape(c.xyz.shape[0], -1))[data_start:data_end]
+        num_samples, input_size = coord_set.shape
+
         #Change Coordinates to BAT if desired
         print('Coordinates')
         assert coordinate_scheme in ["Cartesian", "BAT"]
