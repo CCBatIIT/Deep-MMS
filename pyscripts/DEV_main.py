@@ -115,6 +115,7 @@ class NN_Experiment():
         self.model_name = model_name
         resume = self.json_params["resume_latest"]
         self.report_potential = self.json_params["report_potential"]
+        self.scale_factor = self.json_params["scale_factor"]
 
         print('Establish Directories')
         #Establish Model Directory
@@ -551,7 +552,7 @@ class NN_Experiment():
             #Get the next pot_coef every 5 epochs
             if self.epoch % 5 == 0:
                 #Choose the smaller between 1 and x, where x is the larger of (RMSD/Potential, 1% increase in the current coefficient)
-                self.current_potential_coefficient = np.min((1, np.max((1.01 * self.current_potential_coefficient, (self.rootgrp['Train'].variables['RMSD'][-5:, :].mean() / self.rootgrp['Train'].variables['Potential'][-5:, :].mean())))))
+                self.current_potential_coefficient = np.min((1, np.max((self.scale_factor * self.current_potential_coefficient, (self.rootgrp['Train'].variables['RMSD'][-5:, :].mean() / self.rootgrp['Train'].variables['Potential'][-5:, :].mean())))))
                 print('epoch', self.epoch,
                       'atom_rmsd_nm', '%.4E'%last_loss[0], '%.4E'%last_loss[3],
                       'dPotEnr', '%.4E'%last_loss[1], '%.4E'%last_loss[4],
