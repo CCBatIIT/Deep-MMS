@@ -159,7 +159,10 @@ class NN_Experiment():
                 gas_fun, _ = jaa.get_openmm_energy_functions(fname_prmtop)
                 c = md.load(fname_dcd, top=fname_prmtop)
             elif fname_prmtop.endswith('xml'):
-                import jax_openmm as jaa
+                try:
+                    import jax_openmm as jaa
+                except:
+                    from . import jax_openmm as jaa
                 gas_fun, _ = jaa.get_openmm_energy_functions(fname_prmtop)
                 c = md.load(fname_dcd, top=fname_pdb)
             else:
