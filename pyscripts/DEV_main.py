@@ -260,7 +260,7 @@ class NN_Experiment():
         print('Epoch', self.epoch)
         print('NC', self.rootgrp)
         print('Model', self.model)
-        print("INITIALIZATION COMPLETE")
+        print(f"INITIALIZATION COMPLETE for {self.n_latents} Latents, {self.scale_factor} Scale")
 
     def establish_netcdf(self, nc_filename, open_mode='w'):
         rootgrp = nc.Dataset(nc_filename, open_mode, format='NETCDF4')
