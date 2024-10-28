@@ -126,7 +126,7 @@ class NN_Experiment():
         #Establish Data Directory
         if self.json_params["data_dir"] == 'None':
             latent_dir = os.path.join(model_dir, f'{self.n_latents:04d}_latents/')
-            self.data_dir = os.path.join(latent_dir, f'rpt_{test_slice}/')
+            self.data_dir = os.path.join(latent_dir, f'rpt_{test_slice}_{self.scale_factor}/')
             if not os.path.isdir(latent_dir) and make_dirs:
                 os.mkdir(latent_dir)
         else:
