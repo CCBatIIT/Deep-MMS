@@ -221,10 +221,11 @@ class NN_Experiment():
         
         class TrainState(train_state.TrainState):
           batch_stats: Any
-        
+        n_updates_per_epoch = 8000//self.batch_size
+        schedule = optax.schedules.cosine_decay_schedule(learning_rate, 200*n_updates_per_epoch, 0.1)
         self.state = TrainState.create(apply_fn=self.model.apply,
                                        params=params, batch_stats=batch_stats,
-                                       tx=optax.adam(learning_rate=learning_rate))
+                                       tx=optax.adam(learning_rate=schedule))
         self.epoch = 0
         self.current_potential_coefficient = 0
 
@@ -252,11 +253,13 @@ class NN_Experiment():
         self.nc_data_file = os.path.join(self.data_dir, f'model_{self.model_name}_{self.n_latents:04d}.nc')
         self.nc_checkpoint_file = os.path.join(self.data_dir, f'model_{self.model_name}_{self.n_latents:04d}_checkpoint.nc')
         
-        #Handle Resuming a Simulation or not
+        #Handle Resuming a Training or not
         if resume:
             self.rootgrp = self.establish_netcdf(self.nc_data_file, open_mode='a')
             ckpt_fn = sorted(glob.glob(manager_dir + "/*/default/"))[-1]
             self.epoch = int(ckpt_fn.split(os.sep)[-3]) + 1
+            if self.report_potential:
+                self.current_potential_coefficient = self.rootgrp['Train'].variables['Potential Coefficient'][-1]
             self.load_model_from_ckpt(ckpt_fn)
         else:
             self.rootgrp = self.establish_netcdf(self.nc_data_file)
@@ -452,6 +455,7 @@ class NN_Experiment():
                   'dPotEnr', '%.4E'%last_loss[1], '%.4E'%last_loss[4],
                   'Summation', '%.4E'%last_loss[2], '%.4E'%last_loss[5],
                   'L=%.4E'%last_loss[6], 'Time:', epoch_end)
+            
             self.epoch += 1
         return self.epoch
 
@@ -552,15 +556,13 @@ class NN_Experiment():
             #After all batches seen this epoch
             last_loss = self.eval_losses(rng, self.current_potential_coefficient)
             self.epoch += 1
-            #Get the next pot_coef every 5 epochs
-            if self.epoch % 5 == 0:
-                #Choose the smaller between 1 and x, where x is the larger of (RMSD/Potential, 1% increase in the current coefficient)
-                self.current_potential_coefficient = np.min((1, np.max((self.scale_factor * self.current_potential_coefficient, (self.rootgrp['Train'].variables['RMSD'][-5:, :].mean() / self.rootgrp['Train'].variables['Potential'][-5:, :].mean())))))
-                print('epoch', self.epoch,
-                      'atom_rmsd_nm', '%.4E'%last_loss[0], '%.4E'%last_loss[3],
-                      'dPotEnr', '%.4E'%last_loss[1], '%.4E'%last_loss[4],
-                      'Summation', '%.4E'%last_loss[2], '%.4E'%last_loss[5],
-                      'L=%.4E'%last_loss[6])
+            #Choose the smaller between 1 and x, where x is the larger of (RMSD/Potential, 1% increase in the current coefficient)
+            self.current_potential_coefficient = np.min((1, np.max((self.scale_factor * self.current_potential_coefficient, (jnp.nanmean(self.rootgrp['Train'].variables['RMSD'][-5:, :].filled()) / jnp.nanmean(self.rootgrp['Train'].variables['Potential'][-5:, :].filled()))))))
+            print('epoch', self.epoch,
+                  'atom_rmsd_nm', '%.4E'%last_loss[0], '%.4E'%last_loss[3],
+                  'dPotEnr', '%.4E'%last_loss[1], '%.4E'%last_loss[4],
+                  'Summation', '%.4E'%last_loss[2], '%.4E'%last_loss[5],
+                  'L=%.4E'%last_loss[6])
         print('Scaling Complete')
         return self.epoch
 
