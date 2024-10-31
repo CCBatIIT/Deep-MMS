@@ -120,7 +120,8 @@ class BVEncoder(nn.Module):
     @nn.compact
     def __call__(self, x, train: bool):
         for i in range(len(self.d_hidden)):
-            x = nn.relu(nn.Dense(self.d_hidden[i])(x))
+            x = nn.Dense(self.d_hidden[i])(x)
+            x = nn.leaky_relu(x, negative_slope=0.2)
             x = nn.BatchNorm(use_running_average=not train)(x)
         mean_x = nn.Dense(self.latents, name='fc5_mean')(x)
         logvar_x = nn.Dense(self.latents, name='fc5_logvar')(x)
@@ -133,7 +134,8 @@ class BVDecoder(nn.Module):
     @nn.compact
     def __call__(self, z, train: bool):
         for i in range(len(self.d_hidden))[::-1]:
-            z = nn.relu(nn.Dense(self.d_hidden[i])(z))
+            z = nn.Dense(self.d_hidden[i])(z)
+            z = nn.leaky_relu(z, negative_slope=0.2)
             z = nn.BatchNorm(use_running_average=not train)(z)
         z = nn.Dense(self.out_dim, name='f5')(z)
         return z

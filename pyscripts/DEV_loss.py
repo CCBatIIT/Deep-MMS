@@ -32,7 +32,7 @@ def weighted_summation_loss(a, b, potential_coefficient): # LET A BE BATCH AND B
 @jax.jit
 def different_summation_loss(a, b, potential_coefficient): # LET A BE BATCH AND B BE RECON
     # Make this the square root of the mean of the sum of squares of elements
-    return atom_rmsd(a,b) + potential_coefficient*scaled_pot_enr_diff(a, b)
+    return atom_rmsd(a,b) + jnp.log10(scaled_pot_enr_diff(a, b))
 
 @jax.jit
 def rmsd_log_step(state, batch_x, z_rng, potential_coefficient):
