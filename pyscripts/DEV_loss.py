@@ -22,7 +22,7 @@ def scaled_pot_enr_diff(a, b, pot_coef=None):
     jitted here because it is already vmapped within gas_fun
     Requires the global definition of gas_fun
     """
-    return ((gas_fun(a) - gas_fun(b))/gas_fun(a))**2 #Unitless quantity
+    return jnp.abs(gas_fun(a) - gas_fun(b))
 
 @jax.jit
 def weighted_summation_loss(a, b, potential_coefficient): # LET A BE BATCH AND B BE RECON
@@ -32,14 +32,14 @@ def weighted_summation_loss(a, b, potential_coefficient): # LET A BE BATCH AND B
 @jax.jit
 def different_summation_loss(a, b, potential_coefficient): # LET A BE BATCH AND B BE RECON
     # Make this the square root of the mean of the sum of squares of elements
-    return atom_rmsd(a,b) + jnp.log10(scaled_pot_enr_diff(a, b))
+    return atom_rmsd(a,b) + potential_coefficient*scaled_pot_enr_diff(a, b)
 
 @jax.jit
 def rmsd_log_step(state, batch_x, z_rng, potential_coefficient):
     def loss_fn(params):
         logits, updates = state.apply_fn({'params': params, 'batch_stats': state.batch_stats},
                                          batch_x, z_rng, train=True, mutable=['batch_stats'])
-        loss = jnp.log(jnp.sqrt(jnp.sum(atom_rmsd(batch_x, logits[0])**2)))
+        loss = jnp.log10(jnp.sqrt(jnp.sum(atom_rmsd(batch_x, logits[0])**2)))
         return loss, (logits, updates)
     grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
     (loss, (logits, updates)), grads = grad_fn(state.params)

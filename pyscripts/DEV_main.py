@@ -212,7 +212,7 @@ class NN_Experiment():
         #Initialize Model
         print('Model Init')
         #make hidden layers
-        hidden_layers = [input_size] + [int(val) for val in geometric_distribution(input_size, self.n_latents, 5)]
+        hidden_layers = [int(val) for val in geometric_distribution(input_size, self.n_latents, 10)]
         self.model = BatchNorm_VAE(input_size=input_size, latents=self.n_latents, hidden_layers=hidden_layers)
         rng_init = jax.random.PRNGKey(self.n_latents)
         rng, key = jax.random.split(rng_init)
@@ -224,7 +224,7 @@ class NN_Experiment():
         class TrainState(train_state.TrainState):
           batch_stats: Any
         n_updates_per_epoch = 8000//self.batch_size
-        schedule = optax.schedules.cosine_decay_schedule(learning_rate, 100*n_updates_per_epoch, 0.1)
+        schedule = optax.schedules.cosine_decay_schedule(learning_rate, 100*n_updates_per_epoch, 0.25)
         self.state = TrainState.create(apply_fn=self.model.apply,
                                        params=params, batch_stats=batch_stats,
                                        tx=optax.adam(learning_rate=schedule))
@@ -561,7 +561,6 @@ class NN_Experiment():
             rng, key = jax.random.split(rng)
             #After all batches seen this epoch
             last_loss = self.eval_losses(rng, self.current_potential_coefficient)
-            self.epoch += 1
             #Choose the smaller between 1 and x, where x is the larger of (RMSD/Potential, 1% increase in the current coefficient)
             self.current_potential_coefficient = np.min((1, np.max((self.scale_factor * self.current_potential_coefficient, (jnp.nanmean(self.rootgrp['Train'].variables['RMSD'][-5:, :].filled()) / jnp.nanmean(self.rootgrp['Train'].variables['Potential'][-5:, :].filled()))))))
             print('epoch', self.epoch,
@@ -569,6 +568,7 @@ class NN_Experiment():
                   'dPotEnr', '%.4E'%last_loss[1], '%.4E'%last_loss[4],
                   'Summation', '%.4E'%last_loss[2], '%.4E'%last_loss[5],
                   'L=%.4E'%last_loss[6])
+            self.epoch += 1
         print('Scaling Complete')
         return self.epoch
 

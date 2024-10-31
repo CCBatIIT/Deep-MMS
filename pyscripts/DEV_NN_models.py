@@ -41,7 +41,8 @@ class Encoder(nn.Module):
     @nn.compact
     def __call__(self, x):
         for i in range(len(self.d_hidden)):
-            x = nn.relu(nn.Dense(self.d_hidden[i])(x))
+            x = nn.Dense(self.d_hidden[i])(x)
+            x = nn.leaky_relu(x, negative_slope=0.2)
             x = nn.Dropout(rate=self.dropout_rates[i])(x, deterministic=True)
         x = nn.Dense(self.latents, name='f5')(x)
         return x
@@ -54,7 +55,8 @@ class Decoder(nn.Module):
     @nn.compact
     def __call__(self, z):
         for i in range(len(self.d_hidden))[::-1]:
-            z = nn.relu(nn.Dense(self.d_hidden[i])(z))
+            z = nn.Dense(self.d_hidden[i])(z)
+            z = nn.leaky_relu(z, negative_slope=0.2)
             z = nn.Dropout(rate=self.dropout_rates[i])(z, deterministic=True)
         z = nn.Dense(self.out_dim, name='f5')(z)
         return z
