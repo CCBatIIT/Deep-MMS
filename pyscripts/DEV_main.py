@@ -32,6 +32,8 @@ def suppress_stdout_stderr():
             yield (err, out)
 
 
+geometric_distribution = lambda min_val, max_val, n_vals: [min_val + (max_val - min_val) * (np.exp(float(i) / float(n_vals-1)) - 1.0) / (np.e - 1.0) for i in range(n_vals)]
+
     
 class NN_Experiment():
     """
@@ -210,7 +212,7 @@ class NN_Experiment():
         #Initialize Model
         print('Model Init')
         #make hidden layers
-        hidden_layers = [input_size]*3
+        hidden_layers = [input_size] + [int(val) for val in geometric_distribution(input_size, self.n_latents, 5)]
         self.model = BatchNorm_VAE(input_size=input_size, latents=self.n_latents, hidden_layers=hidden_layers)
         rng_init = jax.random.PRNGKey(self.n_latents)
         rng, key = jax.random.split(rng_init)
@@ -222,10 +224,14 @@ class NN_Experiment():
         class TrainState(train_state.TrainState):
           batch_stats: Any
         n_updates_per_epoch = 8000//self.batch_size
-        schedule = optax.schedules.cosine_decay_schedule(learning_rate, 200*n_updates_per_epoch, 0.1)
+        schedule = optax.schedules.cosine_decay_schedule(learning_rate, 100*n_updates_per_epoch, 0.1)
         self.state = TrainState.create(apply_fn=self.model.apply,
                                        params=params, batch_stats=batch_stats,
                                        tx=optax.adam(learning_rate=schedule))
+
+        # self.state = TrainState.create(apply_fn=self.model.apply,
+        #                                params=params, batch_stats=batch_stats,
+        #                                tx=optax.adam(learning_rate=learning_rate))
         self.epoch = 0
         self.current_potential_coefficient = 0
 
@@ -365,8 +371,8 @@ class NN_Experiment():
         self.rootgrp['Train'].variables['Potential'][self.epoch, :] = jnp.mean(self.eval_batches(self.train_batches, loss.scaled_pot_enr_diff, None), axis=1)
         self.rootgrp['Test'].variables['Potential'][self.epoch, :] = jnp.mean(self.eval_batches(self.test_batches, loss.scaled_pot_enr_diff, None), axis=1)
         
-        self.rootgrp['Train'].variables['Summation'][self.epoch, :] = jnp.mean(self.eval_batches(self.train_batches, loss.weighted_summation_loss, potential_coefficient), axis=1)
-        self.rootgrp['Test'].variables['Summation'][self.epoch, :] = jnp.mean(self.eval_batches(self.test_batches, loss.weighted_summation_loss, potential_coefficient), axis=1)
+        self.rootgrp['Train'].variables['Summation'][self.epoch, :] = jnp.mean(self.eval_batches(self.train_batches, loss.different_summation_loss, potential_coefficient), axis=1)
+        self.rootgrp['Test'].variables['Summation'][self.epoch, :] = jnp.mean(self.eval_batches(self.test_batches, loss.different_summation_loss, potential_coefficient), axis=1)
 
         self.rootgrp['Train'].variables['Potential Coefficient'][self.epoch] = potential_coefficient
         
@@ -550,7 +556,7 @@ class NN_Experiment():
         print('Train Scaling Potential')
         while self.current_potential_coefficient < 1:
             # Training
-            self.train_batches_on_step(self.train_batches, loss.weighted_summation_step, self.current_potential_coefficient)
+            self.train_batches_on_step(self.train_batches, loss.different_summation_step, self.current_potential_coefficient)
             rng = jax.random.PRNGKey(self.epoch)
             rng, key = jax.random.split(rng)
             #After all batches seen this epoch
@@ -577,7 +583,7 @@ class NN_Experiment():
 
         while potential_above_threshold or test_potential_decreasing:
             # Training
-            self.train_batches_on_step(self.train_batches, loss.weighted_summation_step, self.current_potential_coefficient)
+            self.train_batches_on_step(self.train_batches, loss.different_summation_step, self.current_potential_coefficient)
             rng = jax.random.PRNGKey(self.epoch)
             rng, key = jax.random.split(rng)
             #After all batches seen this epoch
