@@ -212,7 +212,8 @@ class NN_Experiment():
         #Initialize Model
         print('Model Init')
         #make hidden layers
-        hidden_layers = [int(val) for val in geometric_distribution(input_size, self.n_latents, 20)]
+        n_hidden = 10
+        hidden_layers = [int(val) for val in geometric_distribution(input_size, self.n_latents, n_hidden)]
         self.model = BatchNorm_VAE(input_size=input_size, latents=self.n_latents, hidden_layers=hidden_layers, dropout_rates=dropout_rates)
         rng_init = jax.random.PRNGKey(self.n_latents)
         rng, key = jax.random.split(rng_init)

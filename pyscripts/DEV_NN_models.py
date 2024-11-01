@@ -125,7 +125,7 @@ class BVEncoder(nn.Module):
             x = nn.Dense(self.d_hidden[i])(x)
             x = nn.leaky_relu(x, negative_slope=0.2)
             x = nn.BatchNorm(use_running_average=not train)(x)
-            x = nn.Dropout(rate=self.dropout_rates[i])(x, deterministic=True)
+            x = nn.Dropout(rate=self.dropout_rates[i])(x, deterministic=not train)
         mean_x = nn.Dense(self.latents, name='fc5_mean')(x)
         logvar_x = nn.Dense(self.latents, name='fc5_logvar')(x)
         return mean_x, logvar_x 
@@ -141,7 +141,7 @@ class BVDecoder(nn.Module):
             z = nn.Dense(self.d_hidden[i])(z)
             z = nn.leaky_relu(z, negative_slope=0.2)
             z = nn.BatchNorm(use_running_average=not train)(z)
-            z = nn.Dropout(rate=self.dropout_rates[i])(z, deterministic=True)
+            z = nn.Dropout(rate=self.dropout_rates[i])(z, deterministic=not train)
         z = nn.Dense(self.out_dim, name='f5')(z)
         return z
 
