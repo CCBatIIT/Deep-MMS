@@ -93,10 +93,11 @@ class BatchNorm_VAE(nn.Module):
     input_size: int
     hidden_layers: tuple
     latents: int
+    dropout_rates: list
         
     def setup(self):
-        self.encoder = BVEncoder(list(self.hidden_layers), self.latents)
-        self.decoder = BVDecoder(list(self.hidden_layers), self.input_size)
+        self.encoder = BVEncoder(list(self.hidden_layers), self.latents, self.dropout_rates)
+        self.decoder = BVDecoder(list(self.hidden_layers), self.input_size, self.dropout_rates)
 
     def __call__(self, x, z_rng, train:bool):
         z_mean, z_logvar = self.encoder(x, train=train)
@@ -116,6 +117,7 @@ class BatchNorm_VAE(nn.Module):
 class BVEncoder(nn.Module):
     d_hidden: list
     latents: int
+    dropout_rates: list
     
     @nn.compact
     def __call__(self, x, train: bool):
@@ -123,6 +125,7 @@ class BVEncoder(nn.Module):
             x = nn.Dense(self.d_hidden[i])(x)
             x = nn.leaky_relu(x, negative_slope=0.2)
             x = nn.BatchNorm(use_running_average=not train)(x)
+            x = nn.Dropout(rate=self.dropout_rates[i])(x, deterministic=True)
         mean_x = nn.Dense(self.latents, name='fc5_mean')(x)
         logvar_x = nn.Dense(self.latents, name='fc5_logvar')(x)
         return mean_x, logvar_x 
@@ -130,6 +133,7 @@ class BVEncoder(nn.Module):
 class BVDecoder(nn.Module):
     d_hidden: list
     out_dim: int
+    dropout_rates: list
 
     @nn.compact
     def __call__(self, z, train: bool):
@@ -137,6 +141,7 @@ class BVDecoder(nn.Module):
             z = nn.Dense(self.d_hidden[i])(z)
             z = nn.leaky_relu(z, negative_slope=0.2)
             z = nn.BatchNorm(use_running_average=not train)(z)
+            z = nn.Dropout(rate=self.dropout_rates[i])(z, deterministic=True)
         z = nn.Dense(self.out_dim, name='f5')(z)
         return z
 

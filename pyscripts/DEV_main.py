@@ -111,7 +111,7 @@ class NN_Experiment():
         data_start, data_end = self.json_params["data_slice_start"], self.json_params["data_slice_end"] #Slice of data
         self.batch_size = self.json_params["batch_size"]
         learning_rate = self.json_params["learning_rate"]
-        #dropout_rates = self.json_params["dropout_rates"]
+        dropout_rates = self.json_params["dropout_rates"]
         model_type = self.json_params["model_type"]
         coordinate_scheme = self.json_params["coordinate_scheme"]
         self.model_name = model_name
@@ -212,8 +212,8 @@ class NN_Experiment():
         #Initialize Model
         print('Model Init')
         #make hidden layers
-        hidden_layers = [int(val) for val in geometric_distribution(input_size, self.n_latents, 10)]
-        self.model = BatchNorm_VAE(input_size=input_size, latents=self.n_latents, hidden_layers=hidden_layers)
+        hidden_layers = [int(val) for val in geometric_distribution(input_size, self.n_latents, 20)]
+        self.model = BatchNorm_VAE(input_size=input_size, latents=self.n_latents, hidden_layers=hidden_layers, dropout_rates=dropout_rates)
         rng_init = jax.random.PRNGKey(self.n_latents)
         rng, key = jax.random.split(rng_init)
         
@@ -224,10 +224,10 @@ class NN_Experiment():
         class TrainState(train_state.TrainState):
           batch_stats: Any
         n_updates_per_epoch = 8000//self.batch_size
-        schedule = optax.schedules.cosine_decay_schedule(learning_rate, 100*n_updates_per_epoch, 0.25)
+        #schedule = optax.schedules.cosine_decay_schedule(learning_rate, 100*n_updates_per_epoch, 0.25)
         self.state = TrainState.create(apply_fn=self.model.apply,
                                        params=params, batch_stats=batch_stats,
-                                       tx=optax.adam(learning_rate=schedule))
+                                       tx=optax.adam(learning_rate=learning_rate))
 
         # self.state = TrainState.create(apply_fn=self.model.apply,
         #                                params=params, batch_stats=batch_stats,
