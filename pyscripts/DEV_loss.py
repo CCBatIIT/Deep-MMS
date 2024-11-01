@@ -36,11 +36,13 @@ def different_summation_loss(a, b, potential_coefficient): # LET A BE BATCH AND 
     return atom_rmsd(a,b)**(1+potential_coefficient) + potential_coefficient*ener + jnp.log10(ener)
 
 @jax.jit
-def rmsd_log_step(state, batch_x, z_rng, potential_coefficient):
+def rmsd_log_step(state, batch_x, z_rng, potential_coefficient, dropout_key):
+    dropout_train_key = jax.random.fold_in(key=dropout_key, data=state.step)
     def loss_fn(params):
         logits, updates = state.apply_fn({'params': params, 'batch_stats': state.batch_stats},
-                                         batch_x, z_rng, train=True, mutable=['batch_stats'])
-        loss = jnp.log10(jnp.sqrt(jnp.sum(atom_rmsd(batch_x, logits[0])**2)))
+                                         batch_x, z_rng, train=True,
+                                         rngs={'dropout': dropout_train_key}, mutable=['batch_stats'])
+        loss = jnp.log(jnp.sqrt(jnp.sum(atom_rmsd(batch_x, logits[0])**2)))
         return loss, (logits, updates)
     grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
     (loss, (logits, updates)), grads = grad_fn(state.params)
@@ -49,10 +51,12 @@ def rmsd_log_step(state, batch_x, z_rng, potential_coefficient):
     return state
 
 @jax.jit
-def potential_step(state, batch_x, z_rng, potential_coefficient):
+def potential_step(state, batch_x, z_rng, potential_coefficient, dropout_key):
+    dropout_train_key = jax.random.fold_in(key=dropout_key, data=state.step)
     def loss_fn(params):
         logits, updates = state.apply_fn({'params': params, 'batch_stats': state.batch_stats},
-                                         batch_x, z_rng, train=True, mutable=['batch_stats'])
+                                         batch_x, z_rng, train=True,
+                                         rngs={'dropout': dropout_train_key}, mutable=['batch_stats'])
         loss = scaled_pot_enr_diff(batch_x, logits[0]).mean()
         return loss, (logits, updates)
     grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
@@ -62,10 +66,12 @@ def potential_step(state, batch_x, z_rng, potential_coefficient):
     return state
 
 @jax.jit
-def weighted_summation_step(state, batch_x, z_rng, potential_coefficient, weights=(1,1)):
+def weighted_summation_step(state, batch_x, z_rng, potential_coefficient, dropout_key):
+    dropout_train_key = jax.random.fold_in(key=dropout_key, data=state.step)
     def loss_fn(params):
         logits, updates = state.apply_fn({'params': params, 'batch_stats': state.batch_stats},
-                                         batch_x, z_rng, train=True, mutable=['batch_stats'])
+                                         batch_x, z_rng, train=True,
+                                         rngs={'dropout': dropout_train_key}, mutable=['batch_stats'])
         loss = weighted_summation_loss(batch_x, logits[0], potential_coefficient).mean()
         return loss, (logits, updates)
     grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
@@ -75,10 +81,12 @@ def weighted_summation_step(state, batch_x, z_rng, potential_coefficient, weight
     return state
 
 @jax.jit
-def different_summation_step(state, batch_x, z_rng, potential_coefficient, weights=(1,1)):
+def different_summation_step(state, batch_x, z_rng, potential_coefficient, dropout_key):
+    dropout_train_key = jax.random.fold_in(key=dropout_key, data=state.step)
     def loss_fn(params):
         logits, updates = state.apply_fn({'params': params, 'batch_stats': state.batch_stats},
-                                         batch_x, z_rng, train=True, mutable=['batch_stats'])
+                                         batch_x, z_rng, train=True,
+                                         rngs={'dropout': dropout_train_key}, mutable=['batch_stats'])
         loss = different_summation_loss(batch_x, logits[0], potential_coefficient).mean()
         return loss, (logits, updates)
     grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
