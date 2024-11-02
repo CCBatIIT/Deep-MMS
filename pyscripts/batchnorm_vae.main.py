@@ -10,4 +10,4 @@ json_fn = sys.argv[1]
 experiment = NN_Experiment(json_fn)
 
 #Train 
-experiment.MAIN_scale_and_train_potential(n_rmsd=2000)
+experiment.MAIN_scale_and_train_potential(n_rmsd=1000)
