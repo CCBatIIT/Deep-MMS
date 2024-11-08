@@ -19,4 +19,4 @@ conda activate jax_12
 
 cd $SLURM_SUBMIT_DIR
 
-python pyscripts/run_main_custom.py $1
+python pyscripts/run_main.py $1
