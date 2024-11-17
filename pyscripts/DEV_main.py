@@ -141,34 +141,39 @@ class NN_Experiment():
             data_end = None
         
         #Load and Align
-
-        global gas_fun
+        global bonds_fun, angles_fun, torsions_fun, lj14_fun, coul14_fun, lj_fun, coul_fun
         if self.report_potential:
-            if fname_prmtop.endswith('prmtop'):
-                #Jax Amber
-                try:
-                    import jax_amber3 as jaa
-                except:
-                    from . import jax_amber3 as jaa
-                gas_fun, _ = jaa.get_amber_functions(fname_prmtop)
-                c = md.load(fname_dcd, top=fname_prmtop)
-            elif fname_prmtop.endswith('pdb'):
-                #Jax Amber
-                try:
-                    import jax_openmm as jaa
-                except:
-                    from . import jax_openmm as jaa
-                gas_fun = jaa.get_openmm_energy_functions(fname_prmtop)
-                c = md.load(fname_dcd, top=fname_prmtop)
-            elif fname_prmtop.endswith('xml'):
-                try:
-                    import jax_openmm as jaa
-                except:
-                    from . import jax_openmm as jaa
-                gas_fun = jaa.get_openmm_energy_functions(fname_prmtop)
-                c = md.load(fname_dcd, top=fname_pdb)
-            else:
-                raise Exception('Gas Function must be obtained from prmtop or pdb')
+            try:
+                import jax_amber3_decomp as jaa
+            except:
+                from . import jax_amber3_decomp as jaa
+            bonds_fun, angles_fun, torsions_fun, lj14_fun, coul14_fun, lj_fun, coul_fun = jaa.get_amber_function_components(fname_prmtop)
+            c = md.load(fname_dcd, top=fname_prmtop)
+            # if fname_prmtop.endswith('prmtop'):
+            #     #Jax Amber
+            #     try:
+            #         import jax_amber3 as jaa
+            #     except:
+            #         from . import jax_amber3 as jaa
+            #     gas_fun, _ = jaa.get_amber_functions(fname_prmtop)
+            #     c = md.load(fname_dcd, top=fname_prmtop)
+            # elif fname_prmtop.endswith('pdb'):
+            #     #Jax Amber
+            #     try:
+            #         import jax_openmm as jaa
+            #     except:
+            #         from . import jax_openmm as jaa
+            #     gas_fun = jaa.get_openmm_energy_functions(fname_prmtop)
+            #     c = md.load(fname_dcd, top=fname_prmtop)
+            # elif fname_prmtop.endswith('xml'):
+            #     try:
+            #         import jax_openmm as jaa
+            #     except:
+            #         from . import jax_openmm as jaa
+            #     gas_fun = jaa.get_openmm_energy_functions(fname_prmtop)
+            #     c = md.load(fname_dcd, top=fname_pdb)
+            # else:
+            #     raise Exception('Gas Function must be obtained from prmtop or pdb')
 
         #Import loss functions after declaration of gas_fun
         global loss
