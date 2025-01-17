@@ -1,12 +1,12 @@
 {
     "fname_dcd": "/ocean/projects/mcb160011p/josephdb/githubs/Deep-MMS/Simulation/3mxf_split2.dcd",
-    "fname_prmtop": "/ocean/projects/mcb160011p/josephdb/githubs/Deep-MMS/Simulation/3mxf_protein_ligand.pdb",
+    "fname_prmtop": "/ocean/projects/mcb160011p/josephdb/githubs/Deep-MMS/Simulation/3mxf_complex_final.xml",
     "fname_pdb": "/ocean/projects/mcb160011p/josephdb/githubs/Deep-MMS/Simulation/3mxf_protein_ligand.pdb",
     "save_dir": "/ocean/projects/mcb160011p/josephdb/githubs/Deep-MMS/",
     "data_dir": "None",
     "max_epoch": 100000,
     "latent_dim": 77,
-    "test_slice": 2,
+    "test_slice": 0,
     "data_slice_start": 0,
     "data_slice_end": "None",
     "model_name": "3mxf_AE_Dropout_RMSD_only",
@@ -17,6 +17,6 @@
     "model_type": "AE",
     "coordinate_scheme": "Cartesian",
     "resume_latest": false,
-    "report_potential": false,
+    "report_potential": true,
     "checkpoint_interval": 200
 }
