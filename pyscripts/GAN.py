@@ -50,7 +50,7 @@ def load_checkpoint(file_name):
         generator_state = TrainState.create(
             apply_fn=generator.apply,
             params=checkpoint['generator_state']['params'],
-            tx=optax.adam(learning_rate=1e-4),
+            tx=optax.adam(learning_rate=1e-3),
             batch_stats=checkpoint['generator_state']['batch_stats']
         ).replace(opt_state=checkpoint['generator_state']['opt_state'])
 
@@ -58,7 +58,7 @@ def load_checkpoint(file_name):
         discriminator_state = TrainState.create(
             apply_fn=discriminator.apply,
             params=checkpoint['discriminator_state']['params'],
-            tx=optax.adam(learning_rate=1e-4),
+            tx=optax.adam(learning_rate=1e-3),
             batch_stats=None  # Discriminator likely doesn't have batch_stats
         ).replace(opt_state=checkpoint['discriminator_state']['opt_state'])
 
