@@ -69,27 +69,47 @@ class NN_Experiment():
             make_dirs: bool: 
         
         JSON PARAMETERS:
-            fname_dcd: string: DCD File to obtain coordinates from
-            fname_prmtop: string: topology file for energy function (can be pdb file if "report_potential" is false)
-            fname_pdb: string: PDB file to be used for BAT coordinate conversions
-            save_dir: string: Directory to save the output (A series of directories are built in this)
-            data_dir: string: Specific data directory to save output (bypasses save_dir option - default "None")
-            max_epoch: int: Cutoff epoch (no step will run beyond this epoch)
-            latent_dim: int: Number of latent dimensions for the model
-            test_slice: int: Can be integer 0 to 4 inclusive, which slice of every five frames to make the test set
-            data_slice_start: int: first (index) frame to build the testing/training data from
-            data_slice_end: int or string="None": last (index) frame to build the testing/training data from
-            model_name: string: Identifier for this model
-            batch_size: int: size of individual batches, (best practice is test_set_size % batch_size == 0)
-            learning_rate: float: learning rate for the optimizer
-            dropout_rates: [float]: 3-list of floats for the dropout rate of dropout layers (Dropout rate = 1 - retention_rate) (use zero for no dropout)
-            potential_threshold: float: Threshold of potential energy deviation to declare training complete
-            model_type: string in ["VAE", "AE"]: Whether to use a Variational AutoEncoder or an AutoEncoder
-                                                    Dropout rates not recommended for VAE
-            coordinate_scheme: string in ["BAT", "Cartesian"]: Coordinate Scheme (fname_pdb must not be None for "BAT")
-            resume_latest: bool: if True, will attempt to reload a previous model
-            report_potential: bool: if True, potential energy deviation of batches will be evaluated and stored in the netcdf file
-            checkpoint_interval: int: Number of epochs in between checkpoints (save the NN every checkpoint_interval epochs)
+            #Explain all json params as they are assinged
+        
+        fname_dcd = #Trajectory file from which to obtain train and test sets
+        
+        fname_prmtop = #Parameter file for energy functions
+        
+        fname_pdb = #PDB file for topology, only if fname_prmtop is an xml file not a prmtop file
+        
+        save_dir = #Directory to build outputs
+        
+        data_dir = #Override the automatic saving with this directory
+        
+        max_epoch = #Cutoff epoch
+        
+        latent_dim = #Number of latent dimensions
+        
+        test_slice = #index of the data from which to derive the 20/80 test set split
+        
+        data_slice_start = #initial index of data from which to derive test and train sets
+        
+        data_slice_end = #final index of data from which to derive test and train sets
+        
+        model_name = #name for file-keeping purposes
+        
+        batch_size = #size of batches (must be an even divisor of total test and total train frames)
+        
+        learning_rate = #Learning rate for the adam optimizer
+        
+        dropout_rates = #Dropout rates for the hideen layers - also determines the quantity of layers
+        
+        potential_threshold = #IDK
+        
+        resume_latest = #Whether to resume a previous training or not
+        
+        report_potential = #whether to calculate the potential energy or not
+        
+        checkpoint_interval = #Interval of epochs to checkpoint the Neural Network
+        
+        scale_factor = #I forgor
+
+        atom_select = #Selection string for mdtraj topology
         """
         #Get the information from the json file
         if not from_json_params:
@@ -112,8 +132,6 @@ class NN_Experiment():
         self.batch_size = self.json_params["batch_size"]
         learning_rate = self.json_params["learning_rate"]
         dropout_rates = self.json_params["dropout_rates"]
-        model_type = self.json_params["model_type"]
-        coordinate_scheme = self.json_params["coordinate_scheme"]
         self.model_name = model_name
         resume = self.json_params["resume_latest"]
         self.report_potential = self.json_params["report_potential"]
@@ -141,71 +159,38 @@ class NN_Experiment():
             data_end = None
         
         #Load and Align
-        global bonds_fun, angles_fun, torsions_fun, lj14_fun, coul14_fun, lj_fun, coul_fun
         if self.report_potential:
-            try:
-                import jax_amber3_decomp as jaa
-            except:
-                from . import jax_amber3_decomp as jaa
-            bonds_fun, angles_fun, torsions_fun, lj14_fun, coul14_fun, lj_fun, coul_fun = jaa.get_amber_function_components(fname_prmtop)
-            c = md.load(fname_dcd, top=fname_prmtop)
-            # if fname_prmtop.endswith('prmtop'):
-            #     #Jax Amber
-            #     try:
-            #         import jax_amber3 as jaa
-            #     except:
-            #         from . import jax_amber3 as jaa
-            #     gas_fun, _ = jaa.get_amber_functions(fname_prmtop)
-            #     c = md.load(fname_dcd, top=fname_prmtop)
-            # elif fname_prmtop.endswith('pdb'):
-            #     #Jax Amber
-            #     try:
-            #         import jax_openmm as jaa
-            #     except:
-            #         from . import jax_openmm as jaa
-            #     gas_fun = jaa.get_openmm_energy_functions(fname_prmtop)
-            #     c = md.load(fname_dcd, top=fname_prmtop)
-            # elif fname_prmtop.endswith('xml'):
-            #     try:
-            #         import jax_openmm as jaa
-            #     except:
-            #         from . import jax_openmm as jaa
-            #     gas_fun = jaa.get_openmm_energy_functions(fname_prmtop)
-            #     c = md.load(fname_dcd, top=fname_pdb)
-            # else:
-            #     raise Exception('Gas Function must be obtained from prmtop or pdb')
+            raise Exception('Potential is currently FUUUUUUUUUUUUCKed')
+            if fname_prmtop.endswith('prmtop'):
+                from pyscripts.jax_MM_energy import AmberPRMTOPHandler
+                self.energy_handler = AmberPRMTOPHandler(fname_prmtop)
+            elif fname_prmtop.endswith('xml'):
+                from pyscripts.jax_MM_energy import OpenMMSystemHandler
+                self.energy_handler = OpenMMSystemHandler(fname_prmtop)
+                raise Exception('OpenMMSystemHandler likely has energetics calculation errors')
+            
 
         #Import loss functions after declaration of gas_fun
         global loss
-        try:
-            import loss as loss
-        except:
-            from . import loss as loss
+        if not self.report_potential:
+            try:
+                import loss_rmsd_only as loss
+            except:
+                from . import loss_rmsd_only as loss
+        elif self.report_potential:
+            try:
+                import loss as loss
+            except:
+                from . import loss as loss
         
         print('Load Data with MDTraj')
+        c = md.load(self.json_params['fname_dcd'], top=self.json_params['fname_prmtop'])
+        if self.json_params['atom_select'] != 'all':
+            c = c.atom_slice(c.topology.select(self.json_params['atom_select']))
         c = c.superpose(c) # FEED IN ALIGNED DATA
         coord_set = jnp.array(c.xyz.reshape(c.xyz.shape[0], -1))[data_start:data_end]
         num_samples, input_size = coord_set.shape
 
-        #Change Coordinates to BAT if desired
-        print('Coordinates')
-        assert coordinate_scheme in ["Cartesian", "BAT"]
-        self.coordinate_scheme = coordinate_scheme
-
-        if coordinate_scheme == "BAT":
-            print('Running BAT Conversion')
-            import pyscripts.jax_BAT as jax_BAT
-            import MDAnalysis as mda
-            u = mda.Universe(fname_pdb, fname_dcd)
-            ag = u.select_atoms("all")
-            ag.guess_bonds()
-            self.BAT = jax_BAT.BAT_jax(ag)
-            self.BAT.run()
-            coord_set = self.BAT.results.bat
-            print('Done with BAT Conversion')
-        else:
-            pass
-        
         #make test and train sets
         print('Batch data')
         test_indices = np.array(range(test_slice, num_samples, 5)) #every fifth frame
@@ -350,15 +335,12 @@ class NN_Experiment():
             main_key, params_key, dropout_key = jax.random.split(key=root_key, num=3)
             recon = self.state.apply_fn({'params':self.state.params, 'batch_stats':self.state.batch_stats}, batch, root_key, train=False, rngs={'dropout': dropout_key})[0]
             #Eval Batch
-            if self.coordinate_scheme == 'BAT':
-                with suppress_stdout_stderr():
-                    batch, recon = self.BAT.VCartesian(batch).reshape(batch.shape[0], -1), self.BAT.VCartesian(recon).reshape(recon.shape[0], -1)
             vals = vals.at[i, :].set(eval_function(batch, recon, potential_coefficient))
         return vals
         
     def eval_rmsd_only(self):
-        self.rootgrp['Train'].variables['RMSD'][self.epoch, :] = jnp.mean(self.eval_batches(self.train_batches, atom_rmsd, None), axis=1)
-        self.rootgrp['Test'].variables['RMSD'][self.epoch, :] = jnp.mean(self.eval_batches(self.test_batches, atom_rmsd, None), axis=1)
+        self.rootgrp['Train'].variables['RMSD'][self.epoch, :] = jnp.mean(self.eval_batches(self.train_batches, loss.atom_rmsd, None), axis=1)
+        self.rootgrp['Test'].variables['RMSD'][self.epoch, :] = jnp.mean(self.eval_batches(self.test_batches, loss.atom_rmsd, None), axis=1)
         most_recent_results = []
         for grp in (self.rootgrp['Train'], self.rootgrp['Test']):
             most_recent_results.append(grp.variables['RMSD'][self.epoch, :].mean())

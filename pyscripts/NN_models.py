@@ -32,56 +32,6 @@ class Data_stream():
                 batch_idx = perm[i * self.batch_size:(i + 1) * self.batch_size]
                 yield self.data[batch_idx]
 
-#Main Use Classes
-class Encoder(nn.Module):
-    d_hidden: list
-    latents: int
-    dropout_rates: list
-
-    @nn.compact
-    def __call__(self, x):
-        for i in range(len(self.d_hidden)):
-            x = nn.Dense(self.d_hidden[i])(x)
-            x = nn.leaky_relu(x, negative_slope=0.2)
-            x = nn.Dropout(rate=self.dropout_rates[i])(x, deterministic=True)
-        x = nn.Dense(self.latents, name='f5')(x)
-        return x
-    
-class Decoder(nn.Module):
-    d_hidden: list
-    out_dim: int
-    dropout_rates: list
-
-    @nn.compact
-    def __call__(self, z):
-        for i in range(len(self.d_hidden))[::-1]:
-            z = nn.Dense(self.d_hidden[i])(z)
-            z = nn.leaky_relu(z, negative_slope=0.2)
-            z = nn.Dropout(rate=self.dropout_rates[i])(z, deterministic=True)
-        z = nn.Dense(self.out_dim, name='f5')(z)
-        return z
-        
-class AE(nn.Module):
-    input_size: int
-    hidden_layers: tuple
-    dropout_rates: list
-    latents: int
-
-    def setup(self):
-        self.encoder = Encoder(list(self.hidden_layers), self.latents, self.dropout_rates)
-        self.decoder = Decoder(list(self.hidden_layers), self.input_size, self.dropout_rates)
-    
-    def __call__(self, x, z_rng):
-        z_latent = self.encoder(x)
-        return self.decoder(z_latent), z_latent
-    
-    def encode(self, x, z_rng):
-        return self.encoder(x)
-    
-    def decode(self, z, z_rng):
-        return self.decoder(z)
-        
-#Extra (Not in Use Classes)
 
 def reparameterize(z_rng, z_mean, z_logvar):
     z_std = jnp.exp(0.5*z_logvar)
@@ -89,6 +39,8 @@ def reparameterize(z_rng, z_mean, z_logvar):
     return z_mean + z_eps*z_std
 
 
+
+#Main Use Classes
 class BatchNorm_VAE(nn.Module):
     input_size: int
     hidden_layers: tuple
