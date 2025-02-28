@@ -385,20 +385,21 @@ class NN_Experiment():
         if self.epoch > 0 and self.epoch % 100 == 0:
             self.checkpoint_netcdf()
         
-    def train_nepochs_on_rmsd_wo_reporting_potential(self, num_rmsd_epochs):
+    def train_nepochs_on_rmsd_wo_reporting_potential(self, num_rmsd_epochs, verbose=True):
         while self.epoch < num_rmsd_epochs:
             epoch_start = datetime.now()
             #Training
             self.train_batches_on_step(self.train_batches, loss.rmsd_log_step, self.current_potential_coefficient)
             last_loss = self.eval_rmsd_only()
             epoch_end = datetime.now() - epoch_start
-            print('epoch', self.epoch,
-                  'atom_rmsd_nm', '%.4E'%last_loss[0], '%.4E'%last_loss[1],
-                  'Time:', epoch_end)
+            if verbose:
+                print('epoch', self.epoch,
+                      'atom_rmsd_nm', '%.4E'%last_loss[0], '%.4E'%last_loss[1],
+                      'Time:', epoch_end)
             self.epoch += 1
         return self.epoch
     
-    def train_rmsd_to_lowest_wo_reporting_potential(self, max_epoch=100000):
+    def train_rmsd_to_lowest_wo_reporting_potential(self, max_epoch=100000, verbose=True):
         """Train on the RMSD until overtraining is deteceted
             Stop training if the RMSD_loss of the test set is rising
         """
@@ -411,9 +412,10 @@ class NN_Experiment():
             #After all batches seen this epoch
             last_loss = self.eval_rmsd_only()
             epoch_end = datetime.now() - epoch_start
-            print('epoch', self.epoch,
-                  'atom_rmsd_nm', '%.4E'%last_loss[0], '%.4E'%last_loss[1],
-                  'Time:', epoch_end)
+            if verbose:
+                print('epoch', self.epoch,
+                      'atom_rmsd_nm', '%.4E'%last_loss[0], '%.4E'%last_loss[1],
+                      'Time:', epoch_end)
             self.epoch += 1
             
             test_rmsd_decreasing = np.polyfit(np.arange(100), np.mean(self.rootgrp['Test']['RMSD'][-100:, :], axis=1), 1)[0] < 0
@@ -579,9 +581,9 @@ class NN_Experiment():
         self.train_rmsd_to_lowest(max_epoch=cutoff_epoch)
         return self.epoch
 
-    def MAIN_train_rmsd_only_wo_reporting_potential(self, n_rmsd=1000, cutoff_epoch=100000):
-        self.train_nepochs_on_rmsd_wo_reporting_potential(n_rmsd)
-        self.train_rmsd_to_lowest_wo_reporting_potential(max_epoch=cutoff_epoch)
+    def MAIN_train_rmsd_only_wo_reporting_potential(self, n_rmsd=1000, cutoff_epoch=100000, verbose=True):
+        self.train_nepochs_on_rmsd_wo_reporting_potential(n_rmsd, verbose=verbose)
+        self.train_rmsd_to_lowest_wo_reporting_potential(max_epoch=cutoff_epoch, verbose=verbose)
         return self.epoch
 
     def MAIN_scale_and_train_potential(self, n_rmsd=500, cutoff_epoch=200000):
