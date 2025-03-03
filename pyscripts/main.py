@@ -287,6 +287,8 @@ class NN_Experiment():
                     pot.units = "KJ/mol"
                     summ = grp.createVariable('Summation', 'f8', ('epoch', 'batch',))
                     summ.units = 'Unitless'
+                true_loss = grp.createVariable('Loss', 'f4', ('epoch', 'batch',))
+                true_loss.units = 'Unitless'
                 grp.history = "Created" + time.ctime(time.time())
             
             if self.report_potential:
@@ -390,6 +392,7 @@ class NN_Experiment():
             epoch_start = datetime.now()
             #Training
             self.train_batches_on_step(self.train_batches, loss.rmsd_log_step, self.current_potential_coefficient)
+            #After all batches seen this epoch
             last_loss = self.eval_rmsd_only()
             epoch_end = datetime.now() - epoch_start
             if verbose:
@@ -403,9 +406,9 @@ class NN_Experiment():
         """Train on the RMSD until overtraining is deteceted
             Stop training if the RMSD_loss of the test set is rising
         """
-        test_rmsd_decreasing = True
+        should_early_stop = False
 
-        while test_rmsd_decreasing and self.epoch < max_epoch:
+        while not should_early_stop and self.epoch < max_epoch:
             epoch_start = datetime.now()
             #Training
             self.train_batches_on_step(self.train_batches, loss.rmsd_log_step, self.current_potential_coefficient)
@@ -417,8 +420,14 @@ class NN_Experiment():
                       'atom_rmsd_nm', '%.4E'%last_loss[0], '%.4E'%last_loss[1],
                       'Time:', epoch_end)
             self.epoch += 1
+            #Evaluate if the last 50 epoch test loss is gr_or_eq than 0.1pm/epoch (incur 5pm=0.05 Angstrom loss)
+            test_rising = np.polyfit(np.arange(50), np.mean(self.rootgrp['Test']['RMSD'][-50:, :], axis=1), 1)[0] < 0.0001
+            #Evaluate if the average test value of the last 50 epochs is greater than 2.5% of the train value
+            test_greater_than_train = np.mean(self.rootgrp['Test']['RMSD'][-50:, :]) >= 1.025*np.mean(self.rootgrp['Train']['RMSD'][-50:, :])
+            #If both are true, invoke early stopping
+            if test_rising and test_greater_than_train:
+                should_early_stop = True
             
-            test_rmsd_decreasing = np.polyfit(np.arange(100), np.mean(self.rootgrp['Test']['RMSD'][-100:, :], axis=1), 1)[0] < 0
 
         if not test_rmsd_decreasing:
             print('RMSD Lowest Run - Break Reason - Test Set Loss Increasing')
@@ -576,12 +585,20 @@ class NN_Experiment():
         
         return self.epoch
 
-    def MAIN_train_rmsd_only(self, n_rmsd=1000, cutoff_epoch=100000):
+    def MAIN_train_rmsd_only(self, n_rmsd=1000, cutoff_epoch=None):
+        if cutoff_epoch is None:
+            #Default to the one in the json
+            cutoff_epoch = self.json_params['max_epoch']
+        
         self.train_nepochs_on_rmsd(n_rmsd)
         self.train_rmsd_to_lowest(max_epoch=cutoff_epoch)
         return self.epoch
 
-    def MAIN_train_rmsd_only_wo_reporting_potential(self, n_rmsd=1000, cutoff_epoch=100000, verbose=True):
+    def MAIN_train_rmsd_only_wo_reporting_potential(self, n_rmsd=1000, cutoff_epoch=None, verbose=True):
+        if cutoff_epoch is None:
+            #Default to the one in the json
+            cutoff_epoch = self.json_params['max_epoch']
+        
         self.train_nepochs_on_rmsd_wo_reporting_potential(n_rmsd, verbose=verbose)
         self.train_rmsd_to_lowest_wo_reporting_potential(max_epoch=cutoff_epoch, verbose=verbose)
         return self.epoch
