@@ -20,7 +20,7 @@ jax.config.update("jax_enable_x64", True)
 printf = lambda x : print(f"{datetime.now().strftime("%m/%d/%Y %H:%M:%S")}//{x}", flush=True)
 
 printf(jax.print_environment_info())
-printf('Default JAX backend is ', jax.default_backend())
+printf(f'Default JAX backend is {jax.default_backend()}')
 
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from os import devnull
@@ -198,7 +198,7 @@ class NN_Experiment():
         train_indices = np.array([element for element in range(num_samples) if element not in test_indices])
         self.test_data = coord_set[test_indices]
         self.train_data = coord_set[train_indices]
-        printf(self.train_data.shape, self.test_data.shape)
+        printf((self.train_data.shape, self.test_data.shape))
         
         #Initialize Model
         printf('Model Init')
@@ -262,9 +262,9 @@ class NN_Experiment():
             self.load_model_from_ckpt(ckpt_fn)
         else:
             self.rootgrp = self.establish_netcdf(self.nc_data_file)
-        printf('Epoch', self.epoch)
-        printf('NC', self.rootgrp)
-        printf('Model', self.model)
+        printf(f'Epoch {self.epoch}')
+        printf(f'NC {self.rootgrp}')
+        printf(f'Model {self.model}')
         printf(f"INITIALIZATION COMPLETE for {self.n_latents} Latents, {self.scale_factor} Scale")
 
     def establish_netcdf(self, nc_filename, open_mode='w'):
@@ -418,7 +418,7 @@ class NN_Experiment():
                 printf(f"epoch {self.epoch} atom_rmsd_nm {'%.4E'%last_loss[0]} {'%.4E'%last_loss[1]} Time: {epoch_end}")
             self.epoch += 1
             #Evaluate if the last 50 epoch test loss is gr_or_eq than 0.1pm/epoch (incur 5pm=0.05 Angstrom loss)
-            test_rising = np.polyfit(np.arange(50), np.mean(self.rootgrp['Test']['RMSD'][-50:, :], axis=1), 1)[0] < 0.0001
+            test_rising = np.polyfit(np.arange(50), np.mean(self.rootgrp['Test']['RMSD'][-50:, :], axis=1), 1)[0] < 0.00005
             #Evaluate if the average test value of the last 50 epochs is greater than 2.5% of the train value
             test_greater_than_train = np.mean(self.rootgrp['Test']['RMSD'][-50:, :]) >= 1.025*np.mean(self.rootgrp['Train']['RMSD'][-50:, :])
             #If both are true, invoke early stopping
