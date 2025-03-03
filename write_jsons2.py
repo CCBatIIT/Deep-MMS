@@ -25,7 +25,7 @@ save_dir = f"/ocean/projects/cis250004p/josephdb/Deep-MMS_runs/"
 data_dir = "None"
 
 #Cutoff epoch
-max_epoch = 25000
+max_epoch = 20000
 
 #Number of latent dimensions
 latent_dim = None
