@@ -17,9 +17,10 @@ except:
     from .NN_models import *
 
 jax.config.update("jax_enable_x64", True)
+printf = lambda x : print(f"{datetime.now().strftime("%m/%d/%Y %H:%M:%S")}//{x}", flush=True)
 
-print(jax.print_environment_info())
-print('Default JAX backend is ', jax.default_backend())
+printf(jax.print_environment_info())
+printf('Default JAX backend is ', jax.default_backend())
 
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from os import devnull
@@ -120,7 +121,7 @@ class NN_Experiment():
             self.json_params = json_fn
         
         #Files
-        print('Load Files')
+        printf('Load Files')
         fname_dcd = self.json_params["fname_dcd"]
         fname_prmtop = self.json_params["fname_prmtop"]
         fname_pdb = self.json_params["fname_pdb"]
@@ -137,7 +138,7 @@ class NN_Experiment():
         self.report_potential = self.json_params["report_potential"]
         self.scale_factor = self.json_params["scale_factor"]
 
-        print('Establish Directories')
+        printf('Establish Directories')
         #Establish Model Directory
         model_dir = os.path.join(save_dir, f'{self.model_name}/')
         if not os.path.isdir(model_dir) and make_dirs:
@@ -183,7 +184,7 @@ class NN_Experiment():
             except:
                 from . import loss as loss
         
-        print('Load Data with MDTraj')
+        printf('Load Data with MDTraj')
         c = md.load(self.json_params['fname_dcd'], top=self.json_params['fname_prmtop'])
         if self.json_params['atom_select'] != 'all':
             c = c.atom_slice(c.topology.select(self.json_params['atom_select']))
@@ -192,15 +193,15 @@ class NN_Experiment():
         num_samples, input_size = coord_set.shape
 
         #make test and train sets
-        print('Batch data')
+        printf('Batch data')
         test_indices = np.array(range(test_slice, num_samples, 5)) #every fifth frame
         train_indices = np.array([element for element in range(num_samples) if element not in test_indices])
         self.test_data = coord_set[test_indices]
         self.train_data = coord_set[train_indices]
-        print(self.train_data.shape, self.test_data.shape)
+        printf(self.train_data.shape, self.test_data.shape)
         
         #Initialize Model
-        print('Model Init')
+        printf('Model Init')
         #make hidden layers
         n_hidden = len(dropout_rates)
         hidden_layers = [int(val) for val in geometric_distribution(input_size, self.n_latents, n_hidden)]
@@ -228,14 +229,14 @@ class NN_Experiment():
         self.current_potential_coefficient = 0
 
         #Checkpointer
-        print('Checkpointer')
+        printf('Checkpointer')
         self.orbax_checkpointer = orbax.checkpoint.PyTreeCheckpointer()
         options = orbax.checkpoint.CheckpointManagerOptions(max_to_keep=2, save_interval_steps=self.json_params['checkpoint_interval'])
         manager_dir = os.path.join(self.data_dir, 'checkpoint_managed')
         self.checkpoint_manager = orbax.checkpoint.CheckpointManager(manager_dir, self.orbax_checkpointer, options)
 
         
-        print('Batch Data')
+        printf('Batch Data')
         num_train = self.train_data.shape[0]
         num_complete_batches, leftover = divmod(num_train, self.batch_size)
         self.num_train_batches = num_complete_batches + bool(leftover)
@@ -247,7 +248,7 @@ class NN_Experiment():
         self.test_batches = Data_stream(self.n_latents, num_test, self.num_test_batches, self.batch_size, self.test_data)
         
         #Initialize data_storage
-        print('Establish NCs')
+        printf('Establish NCs')
         self.nc_data_file = os.path.join(self.data_dir, f'model_{self.model_name}_{self.n_latents:04d}.nc')
         self.nc_checkpoint_file = os.path.join(self.data_dir, f'model_{self.model_name}_{self.n_latents:04d}_checkpoint.nc')
         
@@ -261,10 +262,10 @@ class NN_Experiment():
             self.load_model_from_ckpt(ckpt_fn)
         else:
             self.rootgrp = self.establish_netcdf(self.nc_data_file)
-        print('Epoch', self.epoch)
-        print('NC', self.rootgrp)
-        print('Model', self.model)
-        print(f"INITIALIZATION COMPLETE for {self.n_latents} Latents, {self.scale_factor} Scale")
+        printf('Epoch', self.epoch)
+        printf('NC', self.rootgrp)
+        printf('Model', self.model)
+        printf(f"INITIALIZATION COMPLETE for {self.n_latents} Latents, {self.scale_factor} Scale")
 
     def establish_netcdf(self, nc_filename, open_mode='w'):
         rootgrp = nc.Dataset(nc_filename, open_mode, format='NETCDF4')
@@ -396,9 +397,7 @@ class NN_Experiment():
             last_loss = self.eval_rmsd_only()
             epoch_end = datetime.now() - epoch_start
             if verbose:
-                print('epoch', self.epoch,
-                      'atom_rmsd_nm', '%.4E'%last_loss[0], '%.4E'%last_loss[1],
-                      'Time:', epoch_end)
+                printf(f"epoch {self.epoch} atom_rmsd_nm {'%.4E'%last_loss[0]} {'%.4E'%last_loss[1]} Time: {epoch_end}")
             self.epoch += 1
         return self.epoch
     
@@ -416,9 +415,7 @@ class NN_Experiment():
             last_loss = self.eval_rmsd_only()
             epoch_end = datetime.now() - epoch_start
             if verbose:
-                print('epoch', self.epoch,
-                      'atom_rmsd_nm', '%.4E'%last_loss[0], '%.4E'%last_loss[1],
-                      'Time:', epoch_end)
+                printf(f"epoch {self.epoch} atom_rmsd_nm {'%.4E'%last_loss[0]} {'%.4E'%last_loss[1]} Time: {epoch_end}")
             self.epoch += 1
             #Evaluate if the last 50 epoch test loss is gr_or_eq than 0.1pm/epoch (incur 5pm=0.05 Angstrom loss)
             test_rising = np.polyfit(np.arange(50), np.mean(self.rootgrp['Test']['RMSD'][-50:, :], axis=1), 1)[0] < 0.0001
@@ -427,10 +424,6 @@ class NN_Experiment():
             #If both are true, invoke early stopping
             if test_rising and test_greater_than_train:
                 should_early_stop = True
-            
-
-        if not test_rmsd_decreasing:
-            print('RMSD Lowest Run - Break Reason - Test Set Loss Increasing')
         
         return self.epoch
     
