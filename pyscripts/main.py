@@ -417,12 +417,18 @@ class NN_Experiment():
             if verbose:
                 printf(f"epoch {self.epoch} atom_rmsd_nm {'%.4E'%last_loss[0]} {'%.4E'%last_loss[1]} Time: {epoch_end}")
             self.epoch += 1
+            
             #Evaluate if the last 50 epoch test loss is gr_or_eq than 0.1pm/epoch (incur 5pm=0.05 Angstrom loss)
-            test_rising = np.polyfit(np.arange(50), np.mean(self.rootgrp['Test']['RMSD'][-50:, :], axis=1), 1)[0] < 0.00005
+            test_rising = np.polyfit(np.arange(50), np.mean(self.rootgrp['Test']['RMSD'][-50:, :], axis=1), 1)[0] > 0.00005
+            
             #Evaluate if the average test value of the last 50 epochs is greater than 2.5% of the train value
-            test_greater_than_train = np.mean(self.rootgrp['Test']['RMSD'][-50:, :]) >= 1.025*np.mean(self.rootgrp['Train']['RMSD'][-50:, :])
-            #If both are true, invoke early stopping
-            if test_rising and test_greater_than_train:
+            test_greater_than_train = np.mean(self.rootgrp['Test']['RMSD'][-50:, :]) > 1.025*np.mean(self.rootgrp['Train']['RMSD'][-50:, :])
+            
+            #Evaluate if the loss values are stable or not (last 50 epoch std < 1 angstrom)
+            stable_vals = np.std(self.rootgrp['Test']['RMSD'][-50:, :]) < 1
+            
+            #If all are true, invoke early stopping
+            if False not in [test_rising, test_greater_than_train, stable_vals]:
                 should_early_stop = True
         
         return self.epoch
