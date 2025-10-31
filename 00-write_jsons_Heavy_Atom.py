@@ -44,7 +44,7 @@ top_fns = ["/media/volume/Josephs-Volume/githubs/Deep-MMS/Simulation/oxycodone.p
            "/media/volume/Josephs-Volume/githubs/Deep-MMS/Simulation/3mxf_protein_ligand.pdb",
            "/media/volume/Josephs-Volume/githubs/Deep-MMS/Simulation/KOR_protein_ligand.pdb"]
 
-model_base = 'X006-1'
+model_base = 'X007-1'
 model_names = [f'OX_{model_base}', f'DA_{model_base}',
                f'DA_stretch_{model_base}', f'CR_{model_base}',
                f'BR_{model_base}', f"KOR_{model_base}"]
@@ -58,7 +58,7 @@ for dcd_fn, top_fn, model_name in zip(dcd_fns, top_fns, model_names):
     c = c.atom_slice(c.topology.select('not element H'))
     latent_dims = powers_of_two_up_to(c.n_atoms) + [c.n_atoms] 
 
-    lrs = [(10**-3)/n for n in latent_dims]
+    lrs = [10**-3 for lr in latent_dims]
 
     assert False not in [os.path.isfile(fn) for fn in [dcd_fn, top_fn]]
 
@@ -78,13 +78,15 @@ for dcd_fn, top_fn, model_name in zip(dcd_fns, top_fns, model_names):
             #Learning rate for the adam optimizer
             learning_rate = lr
             #Dropout rates for the hideen layers - also determines the quantity of layers
-            dropout_rates = [0.5, 0.4, 0.4, 0.3, 0.3, 0.2, 0.2, 0.1, 0.1, 0.1]
+            dropout_rates = [0.5, 0.4, 0.3, 0.2, 0.1, 0.1]
             #Whether to resume a previous training or not
             resume_latest = False
             #Interval of epochs to checkpoint the Neural Network
             checkpoint_interval = 200
             #Cutoff epoch
-            max_epoch = 3001
+            max_epoch = 10001
+            #Batchnorm?
+            is_batchnorm = True
             
             json_params = dict(fname_dcd=dcd_fn, fname_topology=top_fn,
                                save_dir=save_dir,
@@ -93,7 +95,8 @@ for dcd_fn, top_fn, model_name in zip(dcd_fns, top_fns, model_names):
                                model_name=model_name, batch_size=batch_size, learning_rate=learning_rate,
                                dropout_rates=dropout_rates, 
                                resume_latest=resume_latest, 
-                               checkpoint_interval=checkpoint_interval)
+                               checkpoint_interval=checkpoint_interval,
+                               is_batchnorm=is_batchnorm)
 
             with open(json_fn, 'w') as f:
                 json.dump(json_params, f, indent=4)

@@ -96,9 +96,10 @@ class BVEncoder(nn.Module):
     def __call__(self, x, train: bool):
         for i in range(len(self.d_hidden)):
             x = nn.Dense(self.d_hidden[i])(x)
-            x = nn.leaky_relu(x, negative_slope=0.2)
+            #x = nn.leaky_relu(x, negative_slope=0.2)
             if self.is_batchnorm:
                 x = nn.BatchNorm(use_running_average=not train)(x)
+            x = nn.leaky_relu(x, negative_slope=0.2)
             x = nn.Dropout(rate=self.dropout_rates[i])(x, deterministic=not train)
         mean_x = nn.Dense(self.latents, name='fc5_mean')(x)
         logvar_x = nn.Dense(self.latents, name='fc5_logvar')(x)
@@ -115,9 +116,10 @@ class BVDecoder(nn.Module):
     def __call__(self, z, train: bool):
         for i in range(len(self.d_hidden))[::-1]:
             z = nn.Dense(self.d_hidden[i])(z)
-            z = nn.leaky_relu(z, negative_slope=0.2)
+            #z = nn.leaky_relu(z, negative_slope=0.2)
             if self.is_batchnorm:
                 z = nn.BatchNorm(use_running_average=not train)(z)
+            z = nn.leaky_relu(z, negative_slope=0.2)
             z = nn.Dropout(rate=self.dropout_rates[i])(z, deterministic=not train)
         z = nn.Dense(self.out_dim, name='f5')(z)
         return z
@@ -210,43 +212,43 @@ def atom_rmsd(a, b):
 #MI_loss = jax.jit(lambda latent_means: compute_mi_matrix_vmap(latent_means, k=5))
 
 
-@jax.jit
-def step(state, batch_x, z_rng, dropout_key):
-    dropout_train_key = jax.random.fold_in(key=dropout_key, data=state.step)
-    def loss_fn(params):
-        #Logits is the output of calling the NN (Decoded, Latent_Means, Latent_Vars)
-        logits, updates = state.apply_fn({'params': params, 'batch_stats': state.batch_stats},
-                                         batch_x, z_rng, train=True,
-                                         rngs={'dropout': dropout_train_key}, mutable=['batch_stats'])
-        #Loss term representing the Root Mean Square reconstruction error
-        loss = jnp.log(jnp.sqrt(jnp.mean(atom_rmsd(batch_x, logits[0])**2)))
-        #Loss term representing the KL Divergence between latent space and standard normals
-        #loss += KL_loss(logits[1], logits[2])
-        #Loss term representing the MI between latent Dimensions
-        #loss += MI_loss(logits[1])
-        return loss, (logits, updates)
-    grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
-    (loss, (logits, updates)), grads = grad_fn(state.params)
-    state = state.apply_gradients(grads=grads)
-    state = state.replace(batch_stats=updates['batch_stats'])
-    return state, loss
+# @jax.jit
+# def step(state, batch_x, z_rng, dropout_key):
+#     dropout_train_key = jax.random.fold_in(key=dropout_key, data=state.step)
+#     def loss_fn(params):
+#         #Logits is the output of calling the NN (Decoded, Latent_Means, Latent_Vars)
+#         logits, updates = state.apply_fn({'params': params, 'batch_stats': state.batch_stats},
+#                                          batch_x, z_rng, train=True,
+#                                          rngs={'dropout': dropout_train_key}, mutable=['batch_stats'])
+#         #Loss term representing the Root Mean Square reconstruction error
+#         loss = jnp.log(jnp.sqrt(jnp.mean(atom_rmsd(batch_x, logits[0])**2)))
+#         #Loss term representing the KL Divergence between latent space and standard normals
+#         #loss += KL_loss(logits[1], logits[2])
+#         #Loss term representing the MI between latent Dimensions
+#         #loss += MI_loss(logits[1])
+#         return loss, (logits, updates)
+#     grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
+#     (loss, (logits, updates)), grads = grad_fn(state.params)
+#     state = state.apply_gradients(grads=grads)
+#     state = state.replace(batch_stats=updates['batch_stats'])
+#     return state, loss
 
-@jax.jit
-def evaluate(state, batch_x, z_rng, dropout_key):
-    dropout_train_key = jax.random.fold_in(key=dropout_key, data=state.step)
-    def loss_fn(params):
-        #Logits is the output of calling the NN (Decoded, Latent_Means, Latent_Vars)
-        logits, updates = state.apply_fn({'params': params, 'batch_stats': state.batch_stats},
-                                         batch_x, z_rng, train=False,
-                                         rngs={'dropout': dropout_train_key}, mutable=['batch_stats'])
-        #Loss term representing the Root Mean Square reconstruction error
-        rmsd_term = jnp.sqrt(jnp.mean(atom_rmsd(batch_x, logits[0])**2))
-        #Loss term representing the KL Divergence between latent space and standard normals
-        #KL_term = KL_loss(logits[1], logits[2])
-        #Loss term representing the MI between latent Dimensions
-        #MI_term = MI_loss(logits[1])
-        return (rmsd_term), (logits, updates)
-    return loss_fn(state.params)[0]
+# @jax.jit
+# def evaluate(state, batch_x, z_rng, dropout_key):
+#     dropout_train_key = jax.random.fold_in(key=dropout_key, data=state.step)
+#     def loss_fn(params):
+#         #Logits is the output of calling the NN (Decoded, Latent_Means, Latent_Vars)
+#         logits, updates = state.apply_fn({'params': params, 'batch_stats': state.batch_stats},
+#                                          batch_x, z_rng, train=False,
+#                                          rngs={'dropout': dropout_train_key}, mutable=['batch_stats'])
+#         #Loss term representing the Root Mean Square reconstruction error
+#         rmsd_term = jnp.sqrt(jnp.mean(atom_rmsd(batch_x, logits[0])**2))
+#         #Loss term representing the KL Divergence between latent space and standard normals
+#         #KL_term = KL_loss(logits[1], logits[2])
+#         #Loss term representing the MI between latent Dimensions
+#         #MI_term = MI_loss(logits[1])
+#         return (rmsd_term), (logits, updates)
+#     return loss_fn(state.params)[0]
 
 
 ####################################################################
@@ -317,29 +319,12 @@ class HeavyAtom_NN_Experiment():
         
         #Initialize Model
         printf('Model Init')
-        n_hidden = len(dropout_rates) #Num Hidden Layers determined by quantity of dropout rates
-        hidden_layers = [int(val) for val in geometric_distribution(input_size, self.n_latents, n_hidden)]
-        self.model = BatchNorm_VAE(input_size=input_size,
-                                   latents=self.n_latents,
-                                   hidden_layers=hidden_layers,
-                                   dropout_rates=dropout_rates,
-                                   is_batchnorm=self.is_batchnorm)
-        rng_init = jax.random.PRNGKey(self.n_latents)
-        main_key, params_key, dropout_key = jax.random.split(key=rng_init, num=3)
-        variables = self.model.init(params_key, coord_set, rng_init, train=False)
-        params = variables['params']
-        batch_stats = variables['batch_stats']
+        from .NN_constructor import make_model_and_state
         
-        class TrainState(train_state.TrainState):
-            batch_stats: Any
-            key: jax.Array
-            
-        n_updates_per_epoch = self.train_data.shape[0]//self.batch_size
-        self.state = TrainState.create(apply_fn=self.model.apply,
-                                       params=params,
-                                       batch_stats=batch_stats,
-                                       key=dropout_key,
-                                       tx=optax.adam(learning_rate=learning_rate))
+        global step, evaluate
+        self.model, self.state, step, evaluate = make_model_and_state(self, dropout_rates, coord_set, learning_rate)
+        step, evaluate = jax.jit(step), jax.jit(evaluate)
+        
         self.epoch = 0
 
         #Checkpointer
