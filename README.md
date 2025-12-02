@@ -21,7 +21,7 @@ Install necessary packages
 ```
 conda install python pip jupyter netCDF4 mdtraj matplotlib openmm scikit-learn
 which pip     #Verify that the pip being used is from the environment
-pip install -U "jax[cuda12]"
+pip install -U "jax[cuda13]"
 pip install flax
 ```
 
