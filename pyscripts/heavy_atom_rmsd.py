@@ -20,7 +20,6 @@ from os import devnull
 ####################################################################
 jax.config.update("jax_enable_x64", True)
 printf = lambda x : print(f"{datetime.now().strftime("%m/%d/%Y %H:%M:%S")}//{x}", flush=True)
-geometric_distribution = lambda min_val, max_val, n_vals: [min_val + (max_val - min_val) * (np.exp(float(i) / float(n_vals-1)) - 1.0) / (np.e - 1.0) for i in range(n_vals)]
 
 @contextmanager
 def suppress_stdout_stderr():
@@ -96,16 +95,15 @@ class BVEncoder(nn.Module):
     def __call__(self, x, train: bool):
         for i in range(len(self.d_hidden)):
             x = nn.Dense(self.d_hidden[i])(x)
-            #x = nn.leaky_relu(x, negative_slope=0.2)
+            x = nn.leaky_relu(x, negative_slope=0.2)
             if self.is_batchnorm:
                 x = nn.BatchNorm(use_running_average=not train)(x)
-            x = nn.leaky_relu(x, negative_slope=0.2)
+            #x = nn.leaky_relu(x, negative_slope=0.2)
             x = nn.Dropout(rate=self.dropout_rates[i])(x, deterministic=not train)
         mean_x = nn.Dense(self.latents, name='fc5_mean')(x)
         logvar_x = nn.Dense(self.latents, name='fc5_logvar')(x)
         return mean_x, logvar_x 
 
-#BatchNorm "Variational" Decoder (all variation is in encoding)
 class BVDecoder(nn.Module):
     d_hidden: list
     out_dim: int
@@ -116,10 +114,10 @@ class BVDecoder(nn.Module):
     def __call__(self, z, train: bool):
         for i in range(len(self.d_hidden))[::-1]:
             z = nn.Dense(self.d_hidden[i])(z)
-            #z = nn.leaky_relu(z, negative_slope=0.2)
+            z = nn.leaky_relu(z, negative_slope=0.2)
             if self.is_batchnorm:
                 z = nn.BatchNorm(use_running_average=not train)(z)
-            z = nn.leaky_relu(z, negative_slope=0.2)
+            #z = nn.leaky_relu(z, negative_slope=0.2)
             z = nn.Dropout(rate=self.dropout_rates[i])(z, deterministic=not train)
         z = nn.Dense(self.out_dim, name='f5')(z)
         return z

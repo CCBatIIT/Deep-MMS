@@ -3,7 +3,7 @@ import flax.linen as nn
 import jax.numpy as jnp
 from flax.training import train_state, orbax_utils
 from typing import Any
-from .heavy_atom_rmsd import printf, geometric_distribution, BatchNorm_VAE, atom_rmsd
+from .heavy_atom_rmsd import printf, BatchNorm_VAE, atom_rmsd
 
 # ####################################################################
 # #    NEURAL NETWORK SECTION
@@ -176,7 +176,7 @@ def make_model_and_state(NN_exp, dropout_rates, coord_set, learning_rate):
     #Initialize Model
     num_samples, input_size = coord_set.shape
     n_hidden = len(dropout_rates) #Num Hidden Layers determined by quantity of dropout rates
-    hidden_layers = [int(val) for val in geometric_distribution(input_size, NN_exp.n_latents, n_hidden)]
+    hidden_layers = [int(elem) for elem in jnp.round(jnp.logspace(jnp.log10(input_size), jnp.log10(NN_exp.n_latents), n_hidden+1))][:n_hidden]
     model = BatchNorm_VAE(input_size=input_size,
                           latents=NN_exp.n_latents,
                           hidden_layers=hidden_layers,
