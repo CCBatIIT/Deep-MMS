@@ -31,7 +31,7 @@ def latent_nums(limit):
 
 
 #Don't forget the NAME!
-model_base = 'X008-2'
+model_base = 'X008-6'
 
 #UnComment to test on crambin
 # dcd_fns = ["/media/volume/Josephs-Volume/githubs/Deep-MMS/Simulation/1crn_split2.dcd"]
@@ -41,37 +41,54 @@ model_base = 'X008-2'
 # model_names = [f'CR_{model_base}']
 #END UnComment Section
 #UnComment below to make all jsons
-dcd_fns = ["/media/volume/Josephs-Volume/githubs/Deep-MMS/Simulation/oxycodone.dcd",
-           "/media/volume/Josephs-Volume/githubs/Deep-MMS/Simulation/decaalanine_1us_split3.dcd",
-           "/media/volume/Josephs-Volume/SYW_da_stretch/DA_stretch_super.dcd",
-           "/media/volume/Josephs-Volume/githubs/Deep-MMS/Simulation/1crn_split2.dcd",
-           "/media/volume/Josephs-Volume/githubs/Deep-MMS/Simulation/3mxf_split2.dcd",
-           "/media/volume/Josephs-Volume/githubs/Deep-MMS/Simulation/KOR_protein_ligand.dcd"]
 
-top_fns = ["/media/volume/Josephs-Volume/githubs/Deep-MMS/Simulation/oxycodone.prmtop",
-           "/media/volume/Josephs-Volume/githubs/Deep-MMS/Simulation/ala_deca_peptide.prmtop",
-           "/media/volume/Josephs-Volume/SYW_da_stretch/ala_deca_peptide.prmtop",
-           "/media/volume/Josephs-Volume/githubs/Deep-MMS/Simulation/1crn_H.prmtop",
-           "/media/volume/Josephs-Volume/githubs/Deep-MMS/Simulation/3mxf_protein_ligand.pdb",
-           "/media/volume/Josephs-Volume/githubs/Deep-MMS/Simulation/KOR_protein_ligand.pdb"]
+dcd_fns = ['Simulation/oxycodone.dcd',
+           'Simulation/decaalanine_1us_split3.dcd',
+           'Simulation/DA_stretch_super.dcd',
+           'Simulation/1crn_split2.dcd',
+           'Simulation/3mxf_100ns_implicit.dcd',
+           'Simulation/KOR_protein_ligand.dcd',
+           'Simulation/HIV1p_protein_only.dcd']
+
+top_fns = ['Simulation/oxycodone.prmtop',
+           'Simulation/ala_deca_peptide.prmtop',
+           'Simulation/ala_deca_peptide.prmtop',
+           'Simulation/1crn_H.prmtop',
+           'Simulation/3mxf_implicit.pdb',
+           'Simulation/KOR_protein_ligand.pdb',
+           'Simulation/HIV1p_protein_only.pdb']
 
 model_names = [f'OX_{model_base}', f'DA_{model_base}',
                f'DA_stretch_{model_base}', f'CR_{model_base}',
-               f'BR_{model_base}', f"KOR_{model_base}"]
-#END UnComment Section
+               f'BR_{model_base}', f'KOR_{model_base}', f'HIV1p_{model_base}']
+
+if os.path.basename(os.getcwd()) == 'Deep-MMS':
+    dcd_fns = [os.path.join(os.getcwd(), fn) for fn in dcd_fns]
+    top_fns = [os.path.join(os.getcwd(), fn) for fn in top_fns]
+    assert False not in [os.path.isfile(fn) for fn in dcd_fns]
+    assert False not in [os.path.isfile(fn) for fn in top_fns]
+else:
+    raise Exception('Wrong Direc')
 
 
 
-json_dir = f'/media/volume/Josephs-Volume/githubs/Deep-MMS/json_inputs/{model_base}'
+
+#json_dir = f'/media/volume/Josephs-Volume/githubs/Deep-MMS/json_inputs/{model_base}'
+json_dir = f'/ocean/projects/cis250004p/josephdb/Deep-MMS/json_inputs/{model_base}'
 if not os.path.isdir(json_dir):
     os.makedirs(json_dir, exist_ok=True)
 
+assert len(dcd_fns) == len(top_fns) and len(dcd_fns) == len(model_names)
 for dcd_fn, top_fn, model_name in zip(dcd_fns, top_fns, model_names):
     c = md.load(dcd_fn, top=top_fn)
     c = c.atom_slice(c.topology.select('not element H'))
     latent_dims = powers_of_two_up_to(c.n_atoms) + [c.n_atoms] 
 
-    lrs = [10**-3 for lr in latent_dims]
+    #lrs = [10**-3 for lr in latent_dims]
+    #lr_func = lambda a, lat: a/(1+np.log(lat)) #X008-5
+    lr_func = lambda a, lat: a/lat #X008-6
+    lrs = [lr_func(1e-3, lat) for lat in latent_dims]
+                                
 
     assert False not in [os.path.isfile(fn) for fn in [dcd_fn, top_fn]]
 
@@ -85,7 +102,7 @@ for dcd_fn, top_fn, model_name in zip(dcd_fns, top_fns, model_names):
             dropout_rates = [0.5, 0.4, 0.3, 0.2, 0.1, 0.1] #ORIGINAL
             
             #Directory to build outputs
-            save_dir = "/media/volume/Josephs-Volume/githubs/Deep-MMS/"
+            save_dir = os.getcwd()
             #initial and final index of data from which to derive test and train sets
             data_slice_start, data_slice_end = 0, "None"
             #size of batches (must be an even divisor of total test and total train frames)
@@ -97,7 +114,7 @@ for dcd_fn, top_fn, model_name in zip(dcd_fns, top_fns, model_names):
             #Interval of epochs to checkpoint the Neural Network
             checkpoint_interval = 200
             #Cutoff epoch
-            max_epoch = 15001
+            max_epoch = 30001
             #Batchnorm?
             is_batchnorm = True
             #Atoms to run
