@@ -21,6 +21,43 @@ from os import devnull
 jax.config.update("jax_enable_x64", True)
 printf = lambda x : print(f"{datetime.now().strftime("%m/%d/%Y %H:%M:%S")}//{x}", flush=True)
 
+def mass_weights(traj):
+    import mdtraj as md
+    import numpy as np
+    H = md.element.hydrogen
+    traj_heavy = traj.atom_slice(traj.top.select('not element H'))
+
+    index_map = np.array([[i, 0] for i in range(traj_heavy.n_atoms)])
+    info = lambda atom: (atom.residue.name, atom.residue.index, atom.name, atom.element.mass)
+    for i in range(traj_heavy.n_atoms):
+        for j in range(traj.n_atoms):
+            atom_i, atom_j = traj_heavy.top.atom(i), traj.top.atom(j)
+            if info(atom_i) == info(atom_j):
+                index_map[i, 1] = j
+                break
+            else: 
+                continue
+    
+    assert np.allclose(traj.xyz[:, index_map[:, 1]], traj_heavy.xyz[:, index_map[:, 0]])
+    
+    heavy_masses = np.array([traj_heavy.top.atom(i).element.mass for i in range(traj_heavy.n_atoms)])
+    assert np.all(heavy_masses[index_map[:, 0]] == masses[index_map[:, 1]])
+
+    from copy import deepcopy
+    mass_unified = deepcopy(heavy_masses)
+    mass_valence = np.ones(heavy_masses.shape)
+    
+    for bond in traj.top.bonds:
+        if bond.atom1.element == H or bond.atom2.element == H:
+            #print(bond.atom1.index, bond.atom1.element, bond.atom2.index, bond.atom2.element)
+            #if so, add the mass of hydrogen to the mass of the heavy atom (unified model)
+            mass_unified[np.where(index_map[:, 1] == bond.atom1.index)[0]] += masses[bond.atom2.index]
+            #also if so, increment the valence model of the heavy atom by one
+            mass_valence[np.where(index_map[:, 1] == bond.atom1.index)[0]] += 1
+
+    return {'Uniform': np.ones(traj.n_atoms), 'Uniform_Heavy': np.ones(traj_heavy.n_atoms),
+            'Mass': masses, 'Mass_Heavy': heavy_masses, 'Mass_United': mass_unified, 'H-Valence': mass_valence}
+    
 @contextmanager
 def suppress_stdout_stderr():
     """A context manager that redirects stdout and stderr to devnull"""
@@ -134,6 +171,15 @@ def atom_rmsd(a, b):
     """
     a, b = a.reshape(-1, 3), b.reshape(-1, 3)
     return jnp.sqrt(jnp.mean(jnp.sum((b - a)**2, axis=1)))
+
+
+def give_weighted_rmsd_func(weights):
+    print('Make Loss Function')
+    def weighted_atom_rmsd(a, b):
+        a, b = a.reshape(-1, 3), b.reshape(-1, 3)
+        return jnp.sqrt(jnp.mean(weights*jnp.sum((b - a)**2, axis=1)))
+    weighted_atom_rmsd = jax.vmap(weighted_atom_rmsd, in_axes=(0,0))
+    return weighted_atom_rmsd
 
 # #KL Divergence between a set of means stds against standard normal distributions
 # KL_loss = lambda mus, log_vars: 0.5 * jnp.sum(mus**2 + jnp.exp(log_vars) - log_vars - 1)
@@ -302,10 +348,11 @@ class HeavyAtom_NN_Experiment():
         #Load and Align
         printf('Load Data with MDTraj')
         c = md.load(self.json_params['fname_dcd'], top=self.json_params['fname_topology'])
-        c = c.atom_slice(c.topology.select('not element H'))
+        c = c.atom_slice(c.topology.select(json_params["atom_selection"]))
         c = c.superpose(c) # FEED IN ALIGNED DATA
         coord_set = jnp.array(c.xyz.reshape(c.xyz.shape[0], -1))[data_start:data_end]
         num_samples, input_size = coord_set.shape
+        mass_sets = mass_weights(c)
 
         #Make Test and Train Sets
         printf('Batch data')
@@ -319,8 +366,15 @@ class HeavyAtom_NN_Experiment():
         printf('Model Init')
         from .NN_constructor import make_model_and_state
         
+        if 'weight_model' in json_params.keys():
+            weight_model = json_params['weight_model']
+        else:
+            weight_model = 'Uniform_Heavy'
+        
+        weights = jnp.array(mass_sets[weight_model])
+        atom_rmsd_loss = give_weighted_rmsd_func(weights)
         global step, evaluate
-        self.model, self.state, step, evaluate = make_model_and_state(self, dropout_rates, coord_set, learning_rate)
+        self.model, self.state, step, evaluate = make_model_and_state(self, dropout_rates, coord_set, learning_rate, atom_rmsd_loss)
         step, evaluate = jax.jit(step), jax.jit(evaluate)
         
         self.epoch = 0

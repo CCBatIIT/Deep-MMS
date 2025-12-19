@@ -100,6 +100,10 @@ for dcd_fn, top_fn, model_name in zip(dcd_fns, top_fns, model_names):
             max_epoch = 15001
             #Batchnorm?
             is_batchnorm = True
+            #Atoms to run
+            atom_selection = 'not element H'
+            #Weighting for loss function
+            weight_model = 'H-Valence'
             
             json_params = dict(fname_dcd=dcd_fn, fname_topology=top_fn,
                                save_dir=save_dir,
@@ -109,7 +113,8 @@ for dcd_fn, top_fn, model_name in zip(dcd_fns, top_fns, model_names):
                                dropout_rates=dropout_rates, 
                                resume_latest=resume_latest, 
                                checkpoint_interval=checkpoint_interval,
-                               is_batchnorm=is_batchnorm)
+                               is_batchnorm=is_batchnorm,
+                               atom_selection=atom_selection, weight_model=weight_model)
 
             with open(json_fn, 'w') as f:
                 json.dump(json_params, f, indent=4)

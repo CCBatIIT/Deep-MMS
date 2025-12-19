@@ -3,7 +3,7 @@ import flax.linen as nn
 import jax.numpy as jnp
 from flax.training import train_state, orbax_utils
 from typing import Any
-from .heavy_atom_rmsd import printf, BatchNorm_VAE, atom_rmsd
+from .heavy_atom_rmsd import printf, BatchNorm_VAE
 
 # ####################################################################
 # #    NEURAL NETWORK SECTION
@@ -87,7 +87,7 @@ from .heavy_atom_rmsd import printf, BatchNorm_VAE, atom_rmsd
 #     return jnp.sqrt(jnp.mean(jnp.sum((b - a)**2, axis=1)))
 
 
-def define_step(NN_exp):
+def define_step(NN_exp, atom_rmsd):
     if NN_exp.is_batchnorm:
         #Define Step
         @jax.jit
@@ -171,7 +171,7 @@ def define_step(NN_exp):
 
 
 
-def make_model_and_state(NN_exp, dropout_rates, coord_set, learning_rate):
+def make_model_and_state(NN_exp, dropout_rates, coord_set, learning_rate, atom_rmsd_loss):
 
     #Initialize Model
     num_samples, input_size = coord_set.shape
@@ -207,6 +207,6 @@ def make_model_and_state(NN_exp, dropout_rates, coord_set, learning_rate):
                                   params=params,
                                   key=dropout_key,
                                   tx=optax.adam(learning_rate=learning_rate))
-    step_func, evaluate_func = define_step(NN_exp)
+    step_func, evaluate_func = define_step(NN_exp, atom_rmsd_loss)
     
     return model, state, step_func, evaluate_func
