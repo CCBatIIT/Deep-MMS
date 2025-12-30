@@ -31,36 +31,36 @@ def latent_nums(limit):
 
 
 #Don't forget the NAME!
-model_base = 'X008-6'
+model_base = 'X009-6'
 
 #UnComment to test on crambin
-# dcd_fns = ["/media/volume/Josephs-Volume/githubs/Deep-MMS/Simulation/1crn_split2.dcd"]
+dcd_fns = ["/media/volume/Josephs-Volume/githubs/Deep-MMS/Simulation/1crn_split2.dcd"]
 
-# top_fns = ["/media/volume/Josephs-Volume/githubs/Deep-MMS/Simulation/1crn_H.prmtop"]
+top_fns = ["/media/volume/Josephs-Volume/githubs/Deep-MMS/Simulation/1crn_H.prmtop"]
 
-# model_names = [f'CR_{model_base}']
+model_names = [f'CR_{model_base}']
 #END UnComment Section
 #UnComment below to make all jsons
 
-dcd_fns = ['Simulation/oxycodone.dcd',
-           'Simulation/decaalanine_1us_split3.dcd',
-           'Simulation/DA_stretch_super.dcd',
-           'Simulation/1crn_split2.dcd',
-           'Simulation/3mxf_100ns_implicit.dcd',
-           'Simulation/KOR_protein_ligand.dcd',
-           'Simulation/HIV1p_protein_only.dcd']
+# dcd_fns = ['Simulation/oxycodone.dcd',
+#            'Simulation/decaalanine_1us_split3.dcd',
+#            'Simulation/DA_stretch_super.dcd',
+#            'Simulation/1crn_split2.dcd',
+#            'Simulation/3mxf_100ns_implicit.dcd',
+#            'Simulation/KOR_protein_ligand.dcd',
+#            'Simulation/HIV1p_protein_only.dcd']
 
-top_fns = ['Simulation/oxycodone.prmtop',
-           'Simulation/ala_deca_peptide.prmtop',
-           'Simulation/ala_deca_peptide.prmtop',
-           'Simulation/1crn_H.prmtop',
-           'Simulation/3mxf_implicit.pdb',
-           'Simulation/KOR_protein_ligand.pdb',
-           'Simulation/HIV1p_protein_only.pdb']
+# top_fns = ['Simulation/oxycodone.prmtop',
+#            'Simulation/ala_deca_peptide.prmtop',
+#            'Simulation/ala_deca_peptide.prmtop',
+#            'Simulation/1crn_H.prmtop',
+#            'Simulation/3mxf_implicit.pdb',
+#            'Simulation/KOR_protein_ligand.pdb',
+#            'Simulation/HIV1p_protein_only.pdb']
 
-model_names = [f'OX_{model_base}', f'DA_{model_base}',
-               f'DA_stretch_{model_base}', f'CR_{model_base}',
-               f'BR_{model_base}', f'KOR_{model_base}', f'HIV1p_{model_base}']
+# model_names = [f'OX_{model_base}', f'DA_{model_base}',
+#                f'DA_stretch_{model_base}', f'CR_{model_base}',
+#                f'BR_{model_base}', f'KOR_{model_base}', f'HIV1p_{model_base}']
 
 if os.path.basename(os.getcwd()) == 'Deep-MMS':
     dcd_fns = [os.path.join(os.getcwd(), fn) for fn in dcd_fns]
@@ -73,8 +73,8 @@ else:
 
 
 
-#json_dir = f'/media/volume/Josephs-Volume/githubs/Deep-MMS/json_inputs/{model_base}'
-json_dir = f'/ocean/projects/cis250004p/josephdb/Deep-MMS/json_inputs/{model_base}'
+json_dir = f'/media/volume/Josephs-Volume/githubs/Deep-MMS/json_inputs/{model_base}'
+#json_dir = f'/ocean/projects/cis250004p/josephdb/Deep-MMS/json_inputs/{model_base}'
 if not os.path.isdir(json_dir):
     os.makedirs(json_dir, exist_ok=True)
 
@@ -114,7 +114,7 @@ for dcd_fn, top_fn, model_name in zip(dcd_fns, top_fns, model_names):
             #Interval of epochs to checkpoint the Neural Network
             checkpoint_interval = 200
             #Cutoff epoch
-            max_epoch = 30001
+            max_epoch = 20001
             #Batchnorm?
             is_batchnorm = True
             #Atoms to run
