@@ -13,7 +13,7 @@ json_params = sys.argv[1]
 
 start = datetime.now()
 self = HeavyAtom_NN_Experiment(json_params, from_json_params=False)
-self.MAIN_train(n_epochs=500, verbose=100)
+self.MAIN_train(n_epochs=50, verbose=100)
 train_time = datetime.now() - start
 printf(f"Time to train {self.n_latents} model for {self.epoch} epochs was {train_time} averaging {train_time/self.epoch} per epoch.") 
 
@@ -65,8 +65,9 @@ plt.savefig(os.path.join(figure_dir, title+'.png'), dpi=900, bbox_inches='tight'
 
 #Plot the latent dimensional distributions
 colors = [(i/self.n_latents, 0.1, (self.n_latents - i)/self.n_latents) for i in range(1, self.n_latents+1)]
+print(colors)
 plt.clf()
-_ = plt.hist(latent_means, bins=100, histtype='step', alpha=0.5, color=colors)
+_ = plt.hist(latent_means.T, bins=100, histtype='step', alpha=0.5, color=colors)
 title = 'All Latents'
 plt.title(title)
 plt.savefig(os.path.join(figure_dir, title+'.png'), dpi=900, bbox_inches='tight')
@@ -148,43 +149,58 @@ for num_components, mult in zip(component_nums, sample_mults):
 
     # Contour plot of Test Data, Reconstructed Data, and Generated Data
     fit_all, fit_test = False, True
-    
-    pca = PCA(n_components=2)
-    if fit_all:
-        pca.fit(jnp.concatenate((self.test_data, decoded, decoded_samples)))
-        pca_test = pca.transform(self.test_data)
-    elif fit_test:
-        pca_test = pca.fit_transform(self.test_data)
-    pca_recon = pca.transform(decoded)
-    pca_gener = pca.transform(decoded_samples)
+     
+    pca_test_fit = PCA(n_components=2)
+    pca_all_fit = PCA(n_components=2)
+    pca_test_1 = pca_test_fit.fit_transform(self.test_data)
+    _ = pca_all_fit.fit(jnp.concatenate((self.test_data, decoded, decoded_samples)))
+    pca_test_2 = pca_all_fit.transform(self.test_data)
+
+    pca_recon_1 = pca_test_fit.transform(decoded)
+    pca_recon_2 = pca_all_fit.transform(decoded)
+    pca_gener_1 = pca_test_fit.transform(decoded_samples)
+    pca_gener_2 = pca_all_fit.transform(decoded_samples)
     
     names = ["Test Set", "Reconstructed", "Generated"]
     colors = ['red', 'green', 'blue']
-    xx, yy = np.meshgrid(np.linspace(pca_test[:,0].min()-2, pca_test[:,0].max()+2, 100),
-                         np.linspace(pca_test[:,1].min()-2, pca_test[:,1].max()+2, 100))
-    
+#    xx, yy = np.meshgrid(np.linspace(pca_test[:,0].min()-2, pca_test[:,0].max()+2, 100),
+#                         np.linspace(pca_test[:,1].min()-2, pca_test[:,1].max()+2, 100))
+#    
+#    custom_lines = []
+#    for i, data in enumerate([pca_test, pca_recon, pca_gener]):
+#        kde = gaussian_kde(data.T)
+#        z = kde(np.vstack([xx.flatten(), yy.flatten()]))
+#        z = z.reshape(xx.shape)
+#        levels = np.linspace(z.max()*0.2, z.max(), 6)
+#        print(i, levels)
+#        plt.contour(xx, yy, z, colors=colors[i], levels=levels)
+#        custom_lines.append(plt.Line2D([0], [0], color=colors[i], lw=3))
+#    lgd = plt.legend(custom_lines, names, bbox_to_anchor=(1.32,1))
+#    title = f'PCA Contour Comparison - {num_components} Component GMM - {decoded_samples.shape[0]:1.1E} Samples'
+#    plt.title(title)
+#    plt.savefig(os.path.join(figure_dir, title+'.png'), dpi=900, bbox_inches='tight')
+#    #plt.show()
+#
+    plt.clf()
     custom_lines = []
-    for i, data in enumerate([pca_test, pca_recon, pca_gener]):
-        kde = gaussian_kde(data.T)
-        z = kde(np.vstack([xx.flatten(), yy.flatten()]))
-        z = z.reshape(xx.shape)
-        levels = np.linspace(z.max()*0.2, z.max(), 6)
-        plt.contour(xx, yy, z, colors=colors[i], levels=levels)
+    for i, data in enumerate([pca_test_1, pca_recon_1, pca_gener_1]):
+        plt.scatter(data[:,0], data[:,1], color=colors[i], label=names[i], alpha=0.05)
         custom_lines.append(plt.Line2D([0], [0], color=colors[i], lw=3))
     lgd = plt.legend(custom_lines, names, bbox_to_anchor=(1.32,1))
-    title = f'PCA Contour Comparison - {num_components} Component GMM - {decoded_samples.shape[0]:1.1E} Samples'
+    title = f'PCA (Test) Scatter Comparison - {num_components} Component GMM - {decoded_samples.shape[0]:1.1E} Samples'
     plt.title(title)
     plt.savefig(os.path.join(figure_dir, title+'.png'), dpi=900, bbox_inches='tight')
     #plt.show()
 
     plt.clf()
     custom_lines = []
-    for i, data in enumerate([pca_test, pca_recon, pca_gener]):
+    for i, data in enumerate([pca_test_2, pca_recon_2, pca_gener_2]):
         plt.scatter(data[:,0], data[:,1], color=colors[i], label=names[i], alpha=0.05)
         custom_lines.append(plt.Line2D([0], [0], color=colors[i], lw=3))
     lgd = plt.legend(custom_lines, names, bbox_to_anchor=(1.32,1))
-    title = f'PCA Scatter Comparison - {num_components} Component GMM - {decoded_samples.shape[0]:1.1E} Samples'
+    title = f'PCA (All) Scatter Comparison - {num_components} Component GMM - {decoded_samples.shape[0]:1.1E} Samples'
     plt.title(title)
     plt.savefig(os.path.join(figure_dir, title+'.png'), dpi=900, bbox_inches='tight')
     #plt.show()
+
     

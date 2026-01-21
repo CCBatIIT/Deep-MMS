@@ -176,7 +176,8 @@ def atom_rmsd(a, b):
 def give_weighted_rmsd_func(weights):
     def weighted_atom_rmsd(a, b):
         a, b = a.reshape(-1, 3), b.reshape(-1, 3)
-        return jnp.sqrt(jnp.mean(weights*jnp.sum((b - a)**2, axis=1)))
+        #return jnp.sqrt(jnp.mean(weights*jnp.sum((b - a)**2, axis=1)))
+        return jnp.sqrt(jnp.sum(weights*jnp.sum((b - a)**2, axis=1))/jnp.sum(weights))
     weighted_atom_rmsd = jax.vmap(weighted_atom_rmsd, in_axes=(0,0))
     return weighted_atom_rmsd
 
