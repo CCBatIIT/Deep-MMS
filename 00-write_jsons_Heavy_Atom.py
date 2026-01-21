@@ -16,8 +16,12 @@ def primes_up_to(limit):
     return np.flatnonzero(is_prime)
 
 def powers_of_two_up_to(limit):
+    """
+    Including the number 3 tho
+    """
     log_limit = np.log2(limit)
     log_limit = log_limit // 1
+    latents = [1, 2, 3] + [int(i) for i in 2**np.arange(2, log_limit+1, dtype=int)]
     return [int(i) for i in 2**np.arange(log_limit+1, dtype=int)]
 
 def latent_nums(limit):
@@ -58,8 +62,8 @@ else:
 
 assert len(dcd_fns) == len(top_fns)
 
-for weight_model, model_base in zip(['Uniform', 'Uniform_Heavy', 'Mass',   'Mass_Heavy', 'Mass_United', 'H-Valence'],
-                                    ['X009-2',  'X009-1',        'X009-4', 'X009-3',     'X009-5',      'X009-6']):
+for weight_model, model_base in zip(['Uniform_Heavy', 'H-Valence', 'Uniform'],
+                                    ['X010-1',        'X010-2',    'X010-3']):
     if weight_model in ['Uniform', 'Mass']:
         atom_selection = 'all'
     elif weight_model in ['Uniform_Heavy', 'Mass_Heavy', 'Mass_United', 'H-Valence']:
@@ -76,23 +80,20 @@ for weight_model, model_base in zip(['Uniform', 'Uniform_Heavy', 'Mass',   'Mass
                    f'HIV1p_{model_base}']
     assert len(dcd_fns) == len(model_names)
     
-    #json_dir = f'/media/volume/Josephs-Volume/githubs/Deep-MMS/json_inputs/{model_base}'
-    json_dir = f'/ocean/projects/cis250004p/josephdb/Deep-MMS/json_inputs/{model_base}'
+    json_dir = f'/media/volume/Josephs-Volume/githubs/Deep-MMS/json_inputs/{model_base}'
+    #json_dir = f'/ocean/projects/cis250004p/josephdb/Deep-MMS/json_inputs/{model_base}'
     if not os.path.isdir(json_dir):
         os.makedirs(json_dir, exist_ok=True)
-
-
-
-
+    
     for dcd_fn, top_fn, model_name in zip(dcd_fns, top_fns, model_names):
         c = md.load(dcd_fn, top=top_fn)
         c = c.atom_slice(c.topology.select(atom_selection))
         latent_dims = powers_of_two_up_to(c.n_atoms) + [c.n_atoms] 
         
-        lrs = [10**-3 for lr in latent_dims] #X009
+        #lrs = [10**-3 for lr in latent_dims] #X009
         #lr_func = lambda a, lat: a/(1+np.log(lat)) #X008-5
-        #lr_func = lambda a, lat: a/lat #X008-6
-        #lrs = [lr_func(1e-3, lat) for lat in latent_dims]
+        lr_func = lambda a, lat: a/lat #X008-6 and X010
+        lrs = [lr_func(1e-3, lat) for lat in latent_dims]
                                 
         assert False not in [os.path.isfile(fn) for fn in [dcd_fn, top_fn]]
     
@@ -118,7 +119,7 @@ for weight_model, model_base in zip(['Uniform', 'Uniform_Heavy', 'Mass',   'Mass
                 #Interval of epochs to checkpoint the Neural Network
                 checkpoint_interval = 200
                 #Cutoff epoch
-                max_epoch = 501
+                max_epoch = 5001
                 #Batchnorm?
                 is_batchnorm = True
             

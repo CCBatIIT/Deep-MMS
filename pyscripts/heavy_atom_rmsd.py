@@ -132,7 +132,8 @@ class BVEncoder(nn.Module):
     def __call__(self, x, train: bool):
         for i in range(len(self.d_hidden)):
             x = nn.Dense(self.d_hidden[i])(x)
-            x = nn.leaky_relu(x, negative_slope=0.2)
+            x = nn.relu(x)
+            #x = nn.leaky_relu(x, negative_slope=0.2)
             if self.is_batchnorm:
                 x = nn.BatchNorm(use_running_average=not train)(x)
             #x = nn.leaky_relu(x, negative_slope=0.2)
@@ -151,7 +152,8 @@ class BVDecoder(nn.Module):
     def __call__(self, z, train: bool):
         for i in range(len(self.d_hidden))[::-1]:
             z = nn.Dense(self.d_hidden[i])(z)
-            z = nn.leaky_relu(z, negative_slope=0.2)
+            z = nn.relu(z)
+            #z = nn.leaky_relu(z, negative_slope=0.2)
             if self.is_batchnorm:
                 z = nn.BatchNorm(use_running_average=not train)(z)
             #z = nn.leaky_relu(z, negative_slope=0.2)
@@ -180,119 +182,6 @@ def give_weighted_rmsd_func(weights):
         return jnp.sqrt(jnp.sum(weights*jnp.sum((b - a)**2, axis=1))/jnp.sum(weights))
     weighted_atom_rmsd = jax.vmap(weighted_atom_rmsd, in_axes=(0,0))
     return weighted_atom_rmsd
-
-# #KL Divergence between a set of means stds against standard normal distributions
-# KL_loss = lambda mus, log_vars: 0.5 * jnp.sum(mus**2 + jnp.exp(log_vars) - log_vars - 1)
-# KL_loss = jax.jit(KL_loss)
-#Mutual Information Regression for the latents (should be minimized) - take the maximum as loss value
-# def pairwise_linf_distances(X):
-#     """Compute pairwise L∞ distances (Chebyshev norm)."""
-#     X = X[:, None, :]  # (N, 1, D)
-#     Y = X.transpose((1, 0, 2))  # (1, N, D)
-#     return jnp.max(jnp.abs(X - Y), axis=2)  # (N, N)
-
-# def knn_mutual_information(x, y, k=5):
-#     N = x.shape[0]
-#     z = jnp.concatenate([x, y], axis=1)
-
-#     dists_z = pairwise_linf_distances(z) + jnp.eye(N) * 1e10
-#     epsilons = jnp.sort(dists_z, axis=1)[:, k - 1]
-
-#     dists_x = pairwise_linf_distances(x)
-#     dists_y = pairwise_linf_distances(y)
-
-#     def count_neighbors(dists, eps):
-#         return jnp.sum(dists < eps - 1e-10)
-
-#     n_x = jax.vmap(count_neighbors, in_axes=(0, 0))(dists_x, epsilons)
-#     n_y = jax.vmap(count_neighbors, in_axes=(0, 0))(dists_y, epsilons)
-
-#     return digamma(k) + digamma(N) - jnp.mean(digamma(n_x + 1) + digamma(n_y + 1))
-
-# def knn_mi_batch(Z, k=5):
-#     """
-#     Estimate mutual information between columns of Z[:, 0] and Z[:, 1]
-#     where Z is shape (N_samples, 2)
-#     """
-#     x = Z[:, 0:1]
-#     y = Z[:, 1:2]
-#     return knn_mutual_information(x, y, k)
-
-# def compute_mi_matrix_vmap(X, k=5):
-#     """
-#     Vectorized computation of MI matrix between all feature pairs in X.
-
-#     Args:
-#         X: jnp.ndarray of shape (N_samples, n_features)
-#         k: KNN parameter for MI estimation
-
-#     Returns:
-#         MI matrix: shape (n_features, n_features)
-#     """
-#     n_samples, n_features = X.shape
-
-#     # Get upper triangle indices (i < j)
-#     i_indices, j_indices = jnp.triu_indices(n_features, k=1)
-#     n_pairs = i_indices.shape[0]
-
-#     # Create (n_pairs, N_samples, 2) array of feature pairs using vmap
-#     def extract_pair(i, j):
-#         xi = X[:, i]
-#         xj = X[:, j]
-#         return jnp.stack([xi, xj], axis=-1)  # (N_samples, 2)
-
-#     Z_pairs = jax.vmap(extract_pair)(i_indices, j_indices)  # (n_pairs, N_samples, 2)
-
-#     # vmap MI computation
-#     mi_values = jax.vmap(lambda z: knn_mi_batch(z, k))(Z_pairs)  # (n_pairs,)
-#     return jnp.max(mi_values)
-#     # # Fill symmetric MI matrix
-#     # MI = jnp.zeros((n_features, n_features))
-#     # MI = MI.at[i_indices, j_indices].set(mi_values)
-#     # MI = MI.at[j_indices, i_indices].set(mi_values)
-
-#     #return MI
-
-#MI_loss = jax.jit(lambda latent_means: compute_mi_matrix_vmap(latent_means, k=5))
-
-
-# @jax.jit
-# def step(state, batch_x, z_rng, dropout_key):
-#     dropout_train_key = jax.random.fold_in(key=dropout_key, data=state.step)
-#     def loss_fn(params):
-#         #Logits is the output of calling the NN (Decoded, Latent_Means, Latent_Vars)
-#         logits, updates = state.apply_fn({'params': params, 'batch_stats': state.batch_stats},
-#                                          batch_x, z_rng, train=True,
-#                                          rngs={'dropout': dropout_train_key}, mutable=['batch_stats'])
-#         #Loss term representing the Root Mean Square reconstruction error
-#         loss = jnp.log(jnp.sqrt(jnp.mean(atom_rmsd(batch_x, logits[0])**2)))
-#         #Loss term representing the KL Divergence between latent space and standard normals
-#         #loss += KL_loss(logits[1], logits[2])
-#         #Loss term representing the MI between latent Dimensions
-#         #loss += MI_loss(logits[1])
-#         return loss, (logits, updates)
-#     grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
-#     (loss, (logits, updates)), grads = grad_fn(state.params)
-#     state = state.apply_gradients(grads=grads)
-#     state = state.replace(batch_stats=updates['batch_stats'])
-#     return state, loss
-
-# @jax.jit
-# def evaluate(state, batch_x, z_rng, dropout_key):
-#     dropout_train_key = jax.random.fold_in(key=dropout_key, data=state.step)
-#     def loss_fn(params):
-#         #Logits is the output of calling the NN (Decoded, Latent_Means, Latent_Vars)
-#         logits, updates = state.apply_fn({'params': params, 'batch_stats': state.batch_stats},
-#                                          batch_x, z_rng, train=False,
-#                                          rngs={'dropout': dropout_train_key}, mutable=['batch_stats'])
-#         #Loss term representing the Root Mean Square reconstruction error
-#         rmsd_term = jnp.sqrt(jnp.mean(atom_rmsd(batch_x, logits[0])**2))
-#         #Loss term representing the KL Divergence between latent space and standard normals
-#         #KL_term = KL_loss(logits[1], logits[2])
-#         #Loss term representing the MI between latent Dimensions
-#         #MI_term = MI_loss(logits[1])
-#         return (rmsd_term), (logits, updates)
-#     return loss_fn(state.params)[0]
 
 
 ####################################################################

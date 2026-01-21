@@ -5,73 +5,7 @@ from flax.training import train_state, orbax_utils
 from typing import Any
 from .heavy_atom_rmsd import printf, BatchNorm_VAE
 
-# ####################################################################
-# #    NEURAL NETWORK SECTION
-# ####################################################################
 
-
-# class BatchNorm_VAE(nn.Module):
-#     input_size: int
-#     hidden_layers: tuple
-#     latents: int
-#     dropout_rates: list
-#     is_batchnorm: bool
-        
-#     def setup(self):
-#         encoder = BVEncoder(list(hidden_layers), latents, dropout_rates, is_batchnorm)
-#         decoder = BVDecoder(list(hidden_layers), input_size, dropout_rates, is_batchnorm)
-
-#     def __call__(self, x, z_rng, train:bool):
-#         z_mean, z_logvar = encoder(x, train=train)
-#         z = reparameterize(z_rng, z_mean, z_logvar)
-#         return decoder(z, train=train), z_mean, z_logvar
-    
-#     def construct(self, z_mean, z_logvar, z_rng, train=False):
-#         z = reparameterize(z_rng, z_mean, z_logvar)
-#         return decoder(z, train=train)
-    
-#     def encode(self, x, z_rng, train=False):
-#         return encoder(x, train=train)
-    
-#     def decode(self, z, z_rng, train=False):
-#         return decoder(z, train=train)
-
-# #BatchNorm Variational AutoEncoder
-# class BVEncoder(nn.Module):
-#     d_hidden: list
-#     latents: int
-#     dropout_rates: list
-#     is_batchnorm: bool
-    
-#     @nn.compact
-#     def __call__(self, x, train: bool):
-#         for i in range(len(d_hidden)):
-#             x = nn.Dense(d_hidden[i])(x)
-#             x = nn.leaky_relu(x, negative_slope=0.2)
-#             if is_batchnorm:
-#                 x = nn.BatchNorm(use_running_average=not train)(x)
-#             x = nn.Dropout(rate=dropout_rates[i])(x, deterministic=not train)
-#         mean_x = nn.Dense(latents, name='fc5_mean')(x)
-#         logvar_x = nn.Dense(latents, name='fc5_logvar')(x)
-#         return mean_x, logvar_x 
-
-# #BatchNorm "Variational" Decoder (all variation is in encoding)
-# class BVDecoder(nn.Module):
-#     d_hidden: list
-#     out_dim: int
-#     dropout_rates: list
-#     is_batchnorm: bool
-
-#     @nn.compact
-#     def __call__(self, z, train: bool):
-#         for i in range(len(d_hidden))[::-1]:
-#             z = nn.Dense(d_hidden[i])(z)
-#             z = nn.leaky_relu(z, negative_slope=0.2)
-#             if is_batchnorm:
-#                 z = nn.BatchNorm(use_running_average=not train)(z)
-#             z = nn.Dropout(rate=dropout_rates[i])(z, deterministic=not train)
-#         z = nn.Dense(out_dim, name='f5')(z)
-#         return z
 
         
 # ####################################################################
@@ -176,7 +110,10 @@ def make_model_and_state(NN_exp, dropout_rates, coord_set, learning_rate, atom_r
     #Initialize Model
     num_samples, input_size = coord_set.shape
     n_hidden = len(dropout_rates) #Num Hidden Layers determined by quantity of dropout rates
-    hidden_layers = [int(elem) for elem in jnp.round(jnp.logspace(jnp.log10(input_size), jnp.log10(NN_exp.n_latents), n_hidden+1))][:n_hidden]
+    #SIZE OF HIDDEN LAYERS
+    geometric_distribution = lambda min_val, max_val, n_vals: [min_val + (max_val - min_val) * (jnp.exp(float(i) / float(n_vals-1)) - 1.0) / (jnp.e - 1.0) for i in range(n_vals)]
+    hidden_layers = [int(val) if int(val) >= int(NN_exp.n_latents) else int(NN_exp.n_latents) for val in geometric_distribution(input_size, NN_exp.n_latents, n_hidden)]
+    
     model = BatchNorm_VAE(input_size=input_size,
                           latents=NN_exp.n_latents,
                           hidden_layers=hidden_layers,
