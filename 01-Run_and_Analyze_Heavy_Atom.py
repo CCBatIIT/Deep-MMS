@@ -67,7 +67,7 @@ plt.savefig(os.path.join(figure_dir, title+'.png'), dpi=900, bbox_inches='tight'
 colors = [(i/self.n_latents, 0.1, (self.n_latents - i)/self.n_latents) for i in range(1, self.n_latents+1)]
 print(colors)
 plt.clf()
-_ = plt.hist(latent_means, bins=100, histtype='step', alpha=0.5, color=colors)
+_ = plt.hist(latent_means.T, bins=100, histtype='step', alpha=0.5, color=colors)
 title = 'All Latents'
 plt.title(title)
 plt.savefig(os.path.join(figure_dir, title+'.png'), dpi=900, bbox_inches='tight')

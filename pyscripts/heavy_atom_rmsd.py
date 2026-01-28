@@ -464,6 +464,10 @@ class HeavyAtom_NN_Experiment():
             #If all are true, invoke early stopping
             if False not in [test_rising, test_greater_than_train, stable_vals]:
                 should_early_stop = True
+                printf("Auto Stopping Was Detected...")
+                printf(f"    Test_Rising = {np.polyfit(np.arange(50), last_50_test_total, 1)[0]:0.3f} is greater than 0.0001")
+                printf(f"    Test_Great_Than_Train = {np.mean(last_50_test_total)} is greater than {1.025*np.mean(last_50_train_total):0.3f}")
+                printf(f"    Stable_Vals = {np.std(last_50_test_total):0.3f}")
         return self.epoch
     
     
@@ -475,3 +479,83 @@ class HeavyAtom_NN_Experiment():
         self.train_to_auto_stop(cutoff_epoch=cutoff_epoch, verbose=verbose)
         return self.epoch
 
+
+
+
+class HeavyAtom_Analyzer(HeavyAtom_NN_Experiment):
+    
+    def __init__(self, json_fn, from_json_params=False, checkpoint_recency=-1):
+        """
+        Provide the json file that ran the experiment
+        To use json parameters that are already in memeory, not just the file name,
+        make from_json_params True and pass the dictionary instead of the file name
+
+        Checkpoint_recency, an index of sorted checkpoint dirs -1 = most well trained.
+        """
+        #Unpack json
+        if not from_json_params:
+            with open(json_fn, 'r') as g:
+                self.json_params = json.load(g)
+        else:
+            self.json_params = json_fn
+        
+        #Determine the location of the save_dir from the json file
+        self.model_name = self.json_params["model_name"]
+        self.n_latents = self.json_params["latent_dim"]
+        test_slice = self.json_params["test_slice"]
+        self.data_dir = os.path.join(self.json_params["save_dir"], f'{self.model_name}/', f'{self.n_latents:04d}_latents/', f'rpt_{test_slice}/')
+        self.is_batchnorm = self.json_params["is_batchnorm"]
+        if "data_dir" in self.json_params.keys():
+            if self.json_params["data_dir"] is not None:
+                self.data_dir = self.json_params["data_dir"]
+                
+        #Find the netcdf and checkpoint
+        nc_data_file = os.path.join(self.data_dir, f'model_{self.model_name}_{self.n_latents:04d}.nc')
+        self.rootgrp = self.establish_netcdf(nc_data_file, open_mode='r')
+
+        checkpoint_dir_wc = os.path.join(self.data_dir, 'checkpoint_managed', '*/')
+        checkpoint_dir = sorted(glob.glob(checkpoint_dir_wc))[checkpoint_recency]
+
+        assert False not in [os.path.exists(direc) for direc in [self.data_dir, nc_data_file, checkpoint_dir]]
+
+        #Load and Align
+        c = md.load(self.json_params['fname_dcd'], top=self.json_params['fname_topology'])
+        c = c.atom_slice(c.topology.select(self.json_params["atom_selection"]))
+        c = c.superpose(c) # FEED IN ALIGNED DATA
+        mass_sets = mass_weights(c)
+        data_start, data_end = self.json_params["data_slice_start"], self.json_params["data_slice_end"] #Slice of data
+        if data_end == 'None':
+            data_end = None
+        
+        coord_set = jnp.array(c.xyz.reshape(c.xyz.shape[0], -1))[data_start:data_end]
+        num_samples, input_size = coord_set.shape
+
+        #Make Test and Train Sets
+        test_indices = np.array(range(test_slice, num_samples, 5)) #every fifth frame
+        train_indices = np.array([element for element in range(num_samples) if element not in test_indices])
+        self.test_data = coord_set[test_indices]
+        self.train_data = coord_set[train_indices]
+        #printf((self.train_data.shape, self.test_data.shape))
+        self.batch_size = self.json_params["batch_size"]
+        
+        #Load the model and state
+        dropout_rates = self.json_params["dropout_rates"]
+        learning_rate = self.json_params["learning_rate"]
+        from pyscripts.NN_constructor import make_model_and_state
+        
+        if 'weight_model' in self.json_params.keys():
+            weight_model = self.json_params['weight_model']
+            assert weight_model in mass_sets.keys()
+        else:
+            weight_model = 'Uniform_Heavy'
+        printf(f'\t Using {weight_model=}')
+        weights = jnp.array(mass_sets[weight_model])
+        self.atom_rmsd_loss = give_weighted_rmsd_func(weights)
+        global step, evaluate
+        self.model, self.state, step, evaluate = make_model_and_state(self, dropout_rates, coord_set, learning_rate, self.atom_rmsd_loss)
+        step, evaluate = jax.jit(step), jax.jit(evaluate)
+        
+        
+        self.state = orbax.checkpoint.PyTreeCheckpointer().restore(checkpoint_dir+'/default/', item=self.state)
+
+        printf(f"Done restoring from {json_fn}")

@@ -22,7 +22,7 @@ def powers_of_two_up_to(limit):
     log_limit = np.log2(limit)
     log_limit = log_limit // 1
     latents = [1, 2, 3] + [int(i) for i in 2**np.arange(2, log_limit+1, dtype=int)]
-    return [int(i) for i in 2**np.arange(log_limit+1, dtype=int)]
+    return latents
 
 def latent_nums(limit):
     primes = primes_up_to(limit)
@@ -62,8 +62,8 @@ else:
 
 assert len(dcd_fns) == len(top_fns)
 
-for weight_model, model_base in zip(['Uniform_Heavy', 'H-Valence', 'Uniform'],
-                                    ['X010-1',        'X010-2',    'X010-3']):
+for weight_model, model_base in zip(['Uniform_Heavy', 'Uniform'],
+                                    ['X012-1',        'X012-2']):
     if weight_model in ['Uniform', 'Mass']:
         atom_selection = 'all'
     elif weight_model in ['Uniform_Heavy', 'Mass_Heavy', 'Mass_United', 'H-Valence']:
@@ -80,8 +80,8 @@ for weight_model, model_base in zip(['Uniform_Heavy', 'H-Valence', 'Uniform'],
                    f'HIV1p_{model_base}']
     assert len(dcd_fns) == len(model_names)
     
-    json_dir = f'/media/volume/Josephs-Volume/githubs/Deep-MMS/json_inputs/{model_base}'
-    #json_dir = f'/ocean/projects/cis250004p/josephdb/Deep-MMS/json_inputs/{model_base}'
+    #json_dir = f'/media/volume/Josephs-Volume/githubs/Deep-MMS/json_inputs/{model_base}'
+    json_dir = f'/ocean/projects/cis250004p/josephdb/Deep-MMS/json_inputs/{model_base}'
     if not os.path.isdir(json_dir):
         os.makedirs(json_dir, exist_ok=True)
     
@@ -90,10 +90,10 @@ for weight_model, model_base in zip(['Uniform_Heavy', 'H-Valence', 'Uniform'],
         c = c.atom_slice(c.topology.select(atom_selection))
         latent_dims = powers_of_two_up_to(c.n_atoms) + [c.n_atoms] 
         
-        #lrs = [10**-3 for lr in latent_dims] #X009
+        lrs = [1e-3 for lr in latent_dims] #1e-3 X009, 1e-4 X012
         #lr_func = lambda a, lat: a/(1+np.log(lat)) #X008-5
-        lr_func = lambda a, lat: a/lat #X008-6 and X010
-        lrs = [lr_func(1e-3, lat) for lat in latent_dims]
+        #lr_func = lambda a, lat: a/lat #X008-6 and X010 X011
+        #lrs = [lr_func(1e-3, lat) for lat in latent_dims]
                                 
         assert False not in [os.path.isfile(fn) for fn in [dcd_fn, top_fn]]
     
@@ -104,7 +104,8 @@ for weight_model, model_base in zip(['Uniform_Heavy', 'H-Valence', 'Uniform'],
             for test_slice in [1, 2, 3, 4, 5]:
                 json_fn = os.path.join(json_dir, model_name, f"{model_name}_{latent_dim:04d}_{test_slice:02d}.json")
                 #Dropout rates for the hideen layers - also determines the quantity of layers
-                dropout_rates = [0.5, 0.4, 0.3, 0.2, 0.1, 0.1] #ORIGINAL
+                #dropout_rates = [0.5, 0.4, 0.3, 0.2, 0.1, 0.1] #ORIGINAL
+                dropout_rates = [0.1, 0.1, 0.1] #ORIGINAL OG OG OG #X011
                 
                 #Directory to build outputs
                 save_dir = os.getcwd()
@@ -121,7 +122,7 @@ for weight_model, model_base in zip(['Uniform_Heavy', 'H-Valence', 'Uniform'],
                 #Cutoff epoch
                 max_epoch = 5001
                 #Batchnorm?
-                is_batchnorm = True
+                is_batchnorm = False #X012 og wasn't batchnorm
             
                 json_params = dict(fname_dcd=dcd_fn, fname_topology=top_fn,
                                    save_dir=save_dir,

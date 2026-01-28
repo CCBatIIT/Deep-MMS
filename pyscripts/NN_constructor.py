@@ -104,6 +104,21 @@ def define_step(NN_exp, atom_rmsd):
     return step, evaluate
 
 
+def create_warmup_cosine_schedule(base_lr, warmup_steps, total_steps, final_lr=1e-5):
+    # During warmup: linearly go from 0 -> base_lr
+    warmup_fn = optax.linear_schedule(init_value=final_lr, end_value=base_lr, transition_steps=warmup_steps)
+    
+    # After warmup: cosine decay from base_lr -> 0
+    decay_steps = total_steps - warmup_steps
+    cosine_fn = optax.cosine_decay_schedule(init_value=base_lr, decay_steps=decay_steps, alpha=final_lr)
+
+    def schedule(step):
+        # Use warmup for the first warmup_steps
+        return jnp.where(step < warmup_steps,
+                         warmup_fn(step),
+                         cosine_fn(step - warmup_steps))
+    return schedule
+
 
 def make_model_and_state(NN_exp, dropout_rates, coord_set, learning_rate, atom_rmsd_loss):
 
@@ -111,8 +126,10 @@ def make_model_and_state(NN_exp, dropout_rates, coord_set, learning_rate, atom_r
     num_samples, input_size = coord_set.shape
     n_hidden = len(dropout_rates) #Num Hidden Layers determined by quantity of dropout rates
     #SIZE OF HIDDEN LAYERS
-    geometric_distribution = lambda min_val, max_val, n_vals: [min_val + (max_val - min_val) * (jnp.exp(float(i) / float(n_vals-1)) - 1.0) / (jnp.e - 1.0) for i in range(n_vals)]
-    hidden_layers = [int(val) if int(val) >= int(NN_exp.n_latents) else int(NN_exp.n_latents) for val in geometric_distribution(input_size, NN_exp.n_latents, n_hidden)]
+    #geometric_distribution = lambda min_val, max_val, n_vals: [min_val + (max_val - min_val) * (jnp.exp(float(i) / float(n_vals-1)) - 1.0) / (jnp.e - 1.0) for i in range(n_vals)]
+    #hidden_layers = [int(val) if int(val) >= int(NN_exp.n_latents) else int(NN_exp.n_latents) for val in geometric_distribution(input_size, NN_exp.n_latents, n_hidden)]
+    # OG OG OG (X012)
+    hidden_layers = [input_size]*len(dropout_rates)
     
     model = BatchNorm_VAE(input_size=input_size,
                           latents=NN_exp.n_latents,
@@ -126,6 +143,11 @@ def make_model_and_state(NN_exp, dropout_rates, coord_set, learning_rate, atom_r
     params = variables['params']
     n_updates_per_epoch = NN_exp.train_data.shape[0]//NN_exp.batch_size
     
+    lr = create_warmup_cosine_schedule(base_lr=learning_rate,
+                                       warmup_steps = n_updates_per_epoch * 1000,
+                                       total_steps = n_updates_per_epoch * NN_exp.json_params['max_epoch'],
+                                       final_lr=learning_rate/100)
+    
     if NN_exp.is_batchnorm:
         batch_stats = variables['batch_stats']
         class TrainState(train_state.TrainState):
@@ -136,14 +158,14 @@ def make_model_and_state(NN_exp, dropout_rates, coord_set, learning_rate, atom_r
                                   params=params,
                                   batch_stats=batch_stats,
                                   key=dropout_key,
-                                  tx=optax.adam(learning_rate=learning_rate))
+                                  tx=optax.adam(lr))
     else:
         class TrainState(train_state.TrainState):
             key: jax.Array
         state = TrainState.create(apply_fn=model.apply,
                                   params=params,
                                   key=dropout_key,
-                                  tx=optax.adam(learning_rate=learning_rate))
+                                  tx=optax.adam(lr))
     step_func, evaluate_func = define_step(NN_exp, atom_rmsd_loss)
     
     return model, state, step_func, evaluate_func

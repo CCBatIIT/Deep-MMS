@@ -8,6 +8,7 @@
 #SBATCH --mail-user=jdepaoloboisvert@hawk.iit.edu
 #SBATCH --account=cis250004p
 #SBATCH -t 24:00:00
+#SBATCH --exclude=v020
 
 source ~/.bashrc
 module load anaconda3
@@ -21,3 +22,4 @@ cd $SLURM_SUBMIT_DIR
 
 python 01-Run_and_Analyze_Heavy_Atom.py $1
 python 02-write_viollin_data.py $1
+python 03-preserve_numpy_data.py $1
