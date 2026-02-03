@@ -62,8 +62,8 @@ else:
 
 assert len(dcd_fns) == len(top_fns)
 
-for weight_model, model_base in zip(['Uniform_Heavy', 'Uniform'],
-                                    ['X012-1',        'X012-2']):
+for weight_model, model_base in zip(['Uniform_Heavy'],
+                                    ['X013-4']):
     if weight_model in ['Uniform', 'Mass']:
         atom_selection = 'all'
     elif weight_model in ['Uniform_Heavy', 'Mass_Heavy', 'Mass_United', 'H-Valence']:
@@ -105,7 +105,8 @@ for weight_model, model_base in zip(['Uniform_Heavy', 'Uniform'],
                 json_fn = os.path.join(json_dir, model_name, f"{model_name}_{latent_dim:04d}_{test_slice:02d}.json")
                 #Dropout rates for the hideen layers - also determines the quantity of layers
                 #dropout_rates = [0.5, 0.4, 0.3, 0.2, 0.1, 0.1] #ORIGINAL
-                dropout_rates = [0.1, 0.1, 0.1] #ORIGINAL OG OG OG #X011
+                #dropout_rates = [0.1, 0.1, 0.1] #ORIGINAL OG OG OG #X011, X012
+                dropout_rates = [0.0, 0.0, 0.0] #for no dropout X013
                 
                 #Directory to build outputs
                 save_dir = os.getcwd()
@@ -120,9 +121,10 @@ for weight_model, model_base in zip(['Uniform_Heavy', 'Uniform'],
                 #Interval of epochs to checkpoint the Neural Network
                 checkpoint_interval = 200
                 #Cutoff epoch
-                max_epoch = 5001
+                max_epoch = 10001
                 #Batchnorm?
-                is_batchnorm = False #X012 og wasn't batchnorm
+                #is_batchnorm = False #X012 og wasn't batchnorm
+                is_batchnorm = True # For X013 comparison to X012
             
                 json_params = dict(fname_dcd=dcd_fn, fname_topology=top_fn,
                                    save_dir=save_dir,

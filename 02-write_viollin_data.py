@@ -85,14 +85,14 @@ class HeavyAtom_Analyzer(HeavyAtom_NN_Experiment):
         printf(f"Done restoring from {json_fn}")
 
 
-def violin_data(heavy_atom_analyzer, save_npy=True, batchnorm=False):
+def violin_data(heavy_atom_analyzer, save_npy=True):
     from sklearn.decomposition import PCA
     key = jax.random.PRNGKey(6969)
     main_key, dropout_key = jax.random.split(key, num=2)
 
 
     n_latents = heavy_atom_analyzer.n_latents
-    if batchnorm:
+    if heavy_atom_analyzer.is_batchnorm:
         decoded, latent_means, latent_vars = heavy_atom_analyzer.state.apply_fn({'params': heavy_atom_analyzer.state.params, 'batch_stats': heavy_atom_analyzer.state.batch_stats},
                                                                                 heavy_atom_analyzer.test_data, main_key, train=False,
                                                                                 rngs={'dropout': dropout_key})

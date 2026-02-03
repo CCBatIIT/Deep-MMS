@@ -44,13 +44,16 @@ plt.savefig(os.path.join(figure_dir, title+'.png'), dpi=900, bbox_inches='tight'
 #Perform VAE on Test Data
 root_key = jax.random.PRNGKey(self.epoch)
 main_key, params_key, dropout_key = jax.random.split(key=root_key, num=3)
-decoded, latent_means, latent_vars = self.state.apply_fn({'params':self.state.params,
-                                                          'batch_stats':self.state.batch_stats},
-                                                         self.test_data,
-                                                         main_key,
-                                                         train=False,
-                                                         rngs={'params': params_key,
-                                                               'dropout': dropout_key})
+
+if self.is_batchnorm:
+    decoded, latent_means, latent_vars = self.state.apply_fn({'params': self.state.params, 'batch_stats': self.state.batch_stats},
+                                                              self.test_data, main_key, train=False, rngs={'dropout': dropout_key})
+else:
+    decoded, latent_means, latent_vars = self.state.apply_fn({'params': self.state.params},
+                                                             self.test_data, main_key, train=False, rngs={'dropout': dropout_key})
+
+
+
 printf(f"{decoded.shape=}, {latent_means.shape=}, {latent_vars.shape=}")
 
 #Plot the rmsd histogram of decoded to encoded
