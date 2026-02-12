@@ -20,6 +20,7 @@ conda activate jax_12
 
 cd $SLURM_SUBMIT_DIR
 
-python 01-Run_and_Analyze_Heavy_Atom.py $1
-python 02-write_viollin_data.py $1
-python 03-preserve_numpy_data.py $1
+python _01_Run_and_Analyze_Heavy_Atom.py $1
+python _02_write_viollin_data.py $1
+python _03_preserve_numpy_data.py $1
+python _04_clustering_metrics.py $1
