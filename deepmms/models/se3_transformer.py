@@ -186,6 +186,7 @@ class SE3TransformerVAE(MolecularAutoencoder):
             _PaiNNLayer(self.d_scalar, self.d_vector, self.cutoff_dist)
             for _ in range(n_mp)
         ]
+        self._pool_norm = nn.LayerNorm()   # stabilises pooled features after MP
         self._z_mean = nn.Dense(self.latents)
         self._z_logvar = nn.Dense(self.latents)
 
@@ -223,6 +224,7 @@ class SE3TransformerVAE(MolecularAutoencoder):
             s, v = layer(s, v, coords)
 
         pooled = jnp.mean(s, axis=1)                           # (B, d_s)
+        pooled = self._pool_norm(pooled)                       # stabilise after MP
         return self._z_mean(pooled), self._z_logvar(pooled)
 
     def decode(self, z, z_rng=None, train: bool = False):

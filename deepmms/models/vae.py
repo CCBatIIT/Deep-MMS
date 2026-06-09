@@ -139,6 +139,11 @@ class BatchNorm_VAE(MolecularAutoencoder):
     dropout_rates: list
     is_batchnorm: bool
 
+    @classmethod
+    def hidden_layers_from_config(cls, input_size, n_latents, dropout_rates, json_params):
+        """Return square hidden layers: one layer of width input_size per dropout rate."""
+        return [input_size] * len(dropout_rates)
+
     def setup(self):
         self.encoder = BVEncoder(
             list(self.hidden_layers),
