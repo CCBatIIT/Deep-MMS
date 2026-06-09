@@ -52,6 +52,7 @@ class HeavyAtom_Analyzer(HeavyAtom_NN_Experiment):
             data_end = None
         
         coord_set = jnp.array(c.xyz.reshape(c.xyz.shape[0], -1))[data_start:data_end]
+        printf(f"Coordinate set has shape {coord_set.shape}")
         num_samples, input_size = coord_set.shape
 
         #Make Test and Train Sets

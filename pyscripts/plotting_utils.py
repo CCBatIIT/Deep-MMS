@@ -18,7 +18,7 @@ topology_map = {'BR_': 'Simulation/3mxf_implicit.pdb',
                 'HIV1p_': 'Simulation/HIV1p_protein_only.pdb',
                 'OX_': 'Simulation/oxycodone.pdb'}
 
-pref2heavycount = {'OX_': 23, 'DA_': 50, 'DA_stretch_': 50, 'CR_': 327, 'BR_': 1093, 'HIV1p_':1599}
+pref2heavycount = {'OX_': 23, 'DA_': 50, 'DA_stretch_': 50, 'CR_': 327, 'CR_small_': 327, 'BR_': 1093, 'HIV1p_':1599}
 
 def load_files(numpy_files, verbose=True):
     fns = sorted(numpy_files)
@@ -28,6 +28,7 @@ def load_files(numpy_files, verbose=True):
     
     model_data = {}
     for attr_set in attrs:
+        print(attr_set)
         n_latents = int(attr_set[1].split('_')[0])
         if n_latents not in model_data.keys():
             model_data[n_latents] = {}

@@ -37,7 +37,7 @@ def mass_weights(traj):
                 break
             else: 
                 continue
-    
+    print(traj, traj.topology, traj_heavy, traj_heavy.topology)
     assert np.allclose(traj.xyz[:, index_map[:, 1]], traj_heavy.xyz[:, index_map[:, 0]])
     
     heavy_masses = np.array([traj_heavy.top.atom(i).element.mass for i in range(traj_heavy.n_atoms)])
@@ -242,8 +242,7 @@ class HeavyAtom_NN_Experiment():
         coord_set = jnp.array(c.xyz.reshape(c.xyz.shape[0], -1))[data_start:data_end]
         num_samples, input_size = coord_set.shape
         
-        printf('Calculate Mass Weighting Schemes')
-        mass_sets = mass_weights(c)
+        
 
         #Make Test and Train Sets
         printf('Batch data')
@@ -257,13 +256,19 @@ class HeavyAtom_NN_Experiment():
         printf('Model Init')
         from .NN_constructor import make_model_and_state
         
-        if 'weight_model' in self.json_params.keys():
+        printf('Calculate Mass Weighting Schemes')
+        
+        if 'weight_model' in self.json_params.keys() and 'Uniform' not in self.json_params['weight_model']:
             weight_model = self.json_params['weight_model']
             assert weight_model in mass_sets.keys()
         else:
             weight_model = 'Uniform_Heavy'
         printf(f'\t Using {weight_model=}')
-        weights = jnp.array(mass_sets[weight_model])
+        if 'Uniform' not in weight_model:
+            mass_sets = mass_weights(c)
+            weights = jnp.array(mass_sets[weight_model])
+        else:
+            weights = jnp.ones(c.n_atoms)
         printf('Make Loss Function')
         atom_rmsd_loss = give_weighted_rmsd_func(weights)
         printf('Make VAE')
