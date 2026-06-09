@@ -141,7 +141,7 @@ $$\hat{x} = \text{MLP}(z_{\text{st}})$$
 $$\mathcal{L}_{\text{VQ}} = \log\sqrt{\overline{\text{RMSD}^2}} + \underbrace{\|\text{sg}(z_e) - z_q\|^2}_{\text{codebook loss}} + \lambda\underbrace{\|z_e - \text{sg}(z_q)\|^2}_{\text{commitment loss}}$$
 
 The codebook loss moves $e_{k^*}$ toward the encoder output; the commitment
-loss (weight $\lambda = 0.25$ by default) keeps the encoder output close to the
+loss (weight $\lambda$, controlled by `vq_commitment_weight`, default 1.0) keeps the encoder output close to the
 codebook.
 
 ### Critical difference

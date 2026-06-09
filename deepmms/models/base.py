@@ -46,12 +46,6 @@ class MolecularAutoencoder(nn.Module, abc.ABC):
             Hidden layer widths, one per element in dropout_rates.
         """
         return [input_size] * len(dropout_rates)
-    """
-    Abstract Flax module defining the interface for molecular autoencoders.
-
-    Concrete subclasses must implement encode, decode, and __call__
-    to be usable with the Experiment training harness.
-    """
 
     @abc.abstractmethod
     def encode(self, x, z_rng, train: bool = False):

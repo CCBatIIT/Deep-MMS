@@ -53,7 +53,16 @@ deepmms/                         # installable Python package
 ├── models/
 │   ├── base.py                  # MolecularAutoencoder abstract base class
 │   ├── vae.py                   # BatchNorm_VAE  (default; MLP with optional BN/Dropout)
+│   ├── beta_vae.py              # BetaVAE        (tuneable KL weight β)
 │   ├── transformer_vae.py       # TransformerVAE (atom-token self-attention)
+│   ├── equivariant_vae.py       # EquivariantVAE (SchNet-style pairwise distances)
+│   ├── perceiver_vae.py         # PerceiverVAE   (O(N·M) cross-attention)
+│   ├── hierarchical_vae.py      # HierarchicalVAE (two-level global/local latent)
+│   ├── se3_transformer.py       # SE3TransformerVAE (PaiNN equivariant message passing)
+│   ├── mamba_vae.py             # MambaVAE       (selective SSM, O(N) cost)
+│   ├── flow_vae.py              # RealNVPFlow    (invertible normalising flow)
+│   ├── mae_vae.py               # MaskedAutoencoder (atom-level masking)
+│   ├── kan_vae.py               # KANVAE         (B-spline edge activations)
 │   └── neat_vae.py              # NEATAutoencoder (growing tanh MLP)
 ├── training/
 │   ├── loss.py                  # atom_rmsd, give_weighted_rmsd_func, KL_loss
@@ -67,16 +76,26 @@ deepmms/                         # installable Python package
     └── plotting.py              # violin plots, difference plots, figure log CSVs
 
 scripts/                         # CLI entry points (all take a JSON config file)
-├── generate_configs.py          # write a sweep of JSON configs for a trajectory set
+├── generate_configs.py          # write a sweep of JSON configs (edit dcd_fns/top_fns inside)
 ├── train.py                     # train BatchNorm_VAE with Adam
+├── train_beta_vae.py            # train BetaVAE with Adam
 ├── train_transformer.py         # train TransformerVAE with Adam
+├── train_equivariant.py         # train EquivariantVAE with Adam
+├── train_perceiver.py           # train PerceiverVAE with Adam
+├── train_hierarchical.py        # train HierarchicalVAE with Adam
+├── train_se3.py                 # train SE3TransformerVAE with Adam
+├── train_mamba.py               # train MambaVAE with Adam
+├── train_flow.py                # train RealNVPFlow with Adam
+├── train_mae.py                 # train MaskedAutoencoder with Adam
+├── train_kan.py                 # train KANVAE with Adam
 ├── train_neat.py                # train NEATAutoencoder with OpenES + topology growth
+├── train_vq_vae.py              # train VQVAE with Adam
 ├── compute_violin_data.py       # compute per-frame VAE vs PCA RMSD arrays (.npy)
 ├── backup_numpy.py              # copy .npy files to versioned numpy_backups/
 ├── clustering_metrics.py        # evaluate clustering metrics on latent representations
 └── perturbation.py              # generate latent-sweep DCD trajectories
 
-archive/pyscripts/               # superseded code preserved for reference
+pyscripts/                       # legacy code preserved for reference
 ```
 
 ---
@@ -147,14 +166,14 @@ JSON extras:
 
 ### 1. Generate JSON configs
 
-Edit the trajectory/model lists at the top of `scripts/generate_configs.py`, then:
+Open `scripts/generate_configs.py` and set `dcd_fns` and `top_fns` in the **CONFIG** section to point to your trajectory and topology files, then:
 
 ```bash
 cd /path/to/Deep-MMS
 python scripts/generate_configs.py
 ```
 
-This writes one JSON per (latent dimension × test-set repeat) combination under `json_inputs/<model_base>/`.
+This writes one JSON per (latent dimension × test-set repeat) combination under `json_inputs/<model_base>/`.  The trajectory paths (`dcd_fns`) and topology paths (`top_fns`) inside the script are user-configurable — no other files need to change.
 
 ### 2. Train a model
 
@@ -225,7 +244,7 @@ python scripts/backup_numpy.py json_inputs/X013-2/CR_X013-2/CR_X013-2_0004_01.js
 | `atom_selection` | str | MDTraj DSL selection string (e.g. `"not element H"`) |
 | `weight_model` | str | Mass-weighting scheme (`"Uniform_Heavy"`, `"Mass_Heavy"`, `"Mass_United"`, `"H-Valence"`) |
 
-Architecture-specific keys are described in the table for each model above.
+Architecture-specific keys are documented in `deepmms/MODEL_DOCUMENTATION.md` under the section for each model.
 
 ---
 
