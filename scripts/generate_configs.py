@@ -1,119 +1,148 @@
 """
-Generate JSON configuration files for a Deep-MMS training sweep.
+Generate JSON configuration files for the Deep-MMS architecture-profiling sweep.
 
 Usage:
     python scripts/generate_configs.py
 
-Edit the CONFIG section below to control which trajectories, model variants,
-and hyperparameters are swept.  One JSON file is written per
-(trajectory × latent_dim × test_slice) combination.
+Writes one JSON per cell of the grid
+
+    architecture x latent_dim x depth x molecular_ensemble x repeat
+
+under ``json_inputs/<SWEEP_TAG>/<model_name>/``, where
+
+    model_name = "<ENSEMBLE>_<architecture>_D<depth>"
+    filename   = "<model_name>_<latent:04d>_<repeat:02d>.json"
+
+Each config is consumed by ``scripts/train_dispatch.py`` (or the per-architecture
+``scripts/train_*.py``).  The architecture is recorded in the ``architecture``
+JSON key so a single runner can train any cell.
+
+Edit the CONFIG section to change the sweep.  Network depth is controlled by the
+length of ``dropout_rates`` for every architecture EXCEPT se3 / equivariant /
+flow, whose depth is set by ``n_mp_layers`` / ``n_interactions`` /
+``n_coupling_layers`` respectively (emitted automatically here).
 """
 
 import json
 import os
 import sys
-import numpy as np
+
 import mdtraj as md
 
-from deepmms.data import powers_of_two_up_to
+# Make the project root importable so the shared config helpers are found even
+# when the package is not pip-installed.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from deepmms.config import atom_selection_for, depth_specific_keys
+
+# ---------------------------------------------------------------------------
+# CONFIG -- edit these to change the sweep
+# ---------------------------------------------------------------------------
+SWEEP_TAG = "profiling_2026"
+
+# Molecular ensembles: (fname_dcd, fname_topology, ensemble_label).
+# Paths are relative to the project root; the multi-GB trajectories for the
+# larger systems are git-ignored but must exist on disk to be trained.
+ENSEMBLES = [
+    ("Simulation/oxycodone.dcd",                 "Simulation/oxycodone.prmtop",                "OX"),
+    ("Simulation/decaalanine_1us_split3.dcd",    "Simulation/ala_deca_peptide.prmtop",         "DA"),
+    ("Simulation/1crn_split2.dcd",               "Simulation/1crn_H.prmtop",                   "CR"),
+    ("Simulation/3mxf_protein_ligand_only.dcd",  "Simulation/3mxf_protein_ligand_only.pdb",    "BRD"),   # bromodomain (3mxf)
+    ("Simulation/HIV1p_protein_only.dcd",        "Simulation/HIV1p_protein_only.pdb",          "HIV1p"),
+]
+
+# Architecture identifiers -> dispatched to model classes by train_dispatch.py.
+ARCHITECTURES = [
+    "batchnorm_vae", "beta_vae", "vq_vae", "transformer", "perceiver",
+    "hierarchical", "equivariant", "se3", "mamba", "flow", "mae", "kan", "neat",
+]
+
+LATENTS = [1, 2, 4, 8, 16, 32]     # clamped per-ensemble to <= n_heavy_atoms
+DEPTHS = [2, 4, 6, 8, 10]          # number of hidden layers
+REPEATS = [1]                      # test_slice values (1..5); one fold by default
+
+WEIGHT_MODEL = "Uniform_Heavy"     # -> atom_selection "not element H"
+LEARNING_RATE = 1e-3
+BATCH_SIZE = 100
+MAX_EPOCH = 10001
+CHECKPOINT_INTERVAL = 200
+DATA_SLICE_START = 0
+DATA_SLICE_END = "None"            # "None" = use all frames
+SAVE_DIR = "runs"                  # git-ignored output root
+# ---------------------------------------------------------------------------
 
 
-def primes_up_to(limit):
-    """Return all prime numbers up to limit as a numpy integer array."""
-    if limit < 2:
-        return np.array([], dtype=int)
-    is_prime = np.ones(limit + 1, dtype=bool)
-    is_prime[0:2] = False
-    for i in range(2, int(np.sqrt(limit)) + 1):
-        if is_prime[i]:
-            is_prime[i * i : limit + 1 : i] = False
-    return np.flatnonzero(is_prime)
-
-
-def latent_nums(limit):
-    """Combine primes and powers-of-two into a sorted latent sweep sequence."""
-    primes = primes_up_to(limit)
-    twos = powers_of_two_up_to(limit)
-    return sorted({int(i) for i in np.arange(limit + 1)
-                   if i in primes or i in twos or i == limit})
+def n_heavy_atoms(top_fn, atom_selection):
+    """Count selected atoms from the topology alone (no trajectory load)."""
+    topology = md.load_topology(top_fn)
+    return len(topology.select(atom_selection))
 
 
 def main():
-    """Entry point: write JSON config files for a training sweep."""
-    if os.path.basename(os.getcwd()) != "Deep-MMS":
-        raise RuntimeError("Run this script from the Deep-MMS project root directory.")
+    """Entry point: write JSON config files for the profiling sweep."""
+    root = os.getcwd()
+    if not (os.path.isdir(os.path.join(root, "deepmms"))
+            and os.path.isdir(os.path.join(root, "Simulation"))):
+        raise RuntimeError(
+            "Run this script from the Deep-MMS project root "
+            "(the directory containing deepmms/ and Simulation/)."
+        )
 
-    # ------------------------------------------------------------------
-    # CONFIG — edit these lists to change the sweep
-    # ------------------------------------------------------------------
-    dcd_fns = ["Simulation/1crn_split2.dcd"]
-    top_fns = ["Simulation/1crn_H.prmtop"]
+    atom_selection = atom_selection_for(WEIGHT_MODEL)
+    n_written = 0
 
-    dcd_fns = [os.path.join(os.getcwd(), fn) if fn.startswith("Simulation") else fn
-               for fn in dcd_fns]
-    top_fns = [os.path.join(os.getcwd(), fn) if fn.startswith("Simulation") else fn
-               for fn in top_fns]
+    for dcd_rel, top_rel, ensemble in ENSEMBLES:
+        dcd_fn = os.path.join(root, dcd_rel)
+        top_fn = os.path.join(root, top_rel)
+        if not os.path.isfile(dcd_fn):
+            print(f"  SKIP {ensemble}: trajectory not found ({dcd_rel})")
+            continue
+        if not os.path.isfile(top_fn):
+            print(f"  SKIP {ensemble}: topology not found ({top_rel})")
+            continue
 
-    assert all(os.path.isfile(fn) for fn in dcd_fns), "DCD file(s) not found"
-    assert all(os.path.isfile(fn) for fn in top_fns), "Topology file(s) not found"
-    assert len(dcd_fns) == len(top_fns)
+        n_atoms = n_heavy_atoms(top_fn, atom_selection)
+        latents = [l for l in LATENTS if l <= n_atoms]
+        print(f"{ensemble}: {n_atoms} selected atoms -> latents {latents}")
 
-    sweep_params = [
-        # (weight_model, model_base)
-        ("Uniform_Heavy", "X013-2"),
-    ]
-    # ------------------------------------------------------------------
+        for architecture in ARCHITECTURES:
+            for depth in DEPTHS:
+                model_name = f"{ensemble}_{architecture}_D{depth:02d}"
+                out_dir = os.path.join(root, "json_inputs", SWEEP_TAG, model_name)
+                os.makedirs(out_dir, exist_ok=True)
 
-    for weight_model, model_base in sweep_params:
-        if weight_model in ("Uniform", "Mass"):
-            atom_selection = "all"
-        elif weight_model in ("Uniform_Heavy", "Mass_Heavy", "Mass_United", "H-Valence"):
-            atom_selection = "not element H"
-        else:
-            raise ValueError(f"Unknown weight_model: {weight_model!r}")
+                for latent_dim in latents:
+                    for test_slice in REPEATS:
+                        params = dict(
+                            architecture=architecture,
+                            fname_dcd=dcd_fn,
+                            fname_topology=top_fn,
+                            save_dir=os.path.join(root, SAVE_DIR),
+                            max_epoch=MAX_EPOCH,
+                            latent_dim=latent_dim,
+                            test_slice=test_slice,
+                            data_slice_start=DATA_SLICE_START,
+                            data_slice_end=DATA_SLICE_END,
+                            model_name=model_name,
+                            batch_size=BATCH_SIZE,
+                            learning_rate=LEARNING_RATE,
+                            dropout_rates=[0.0] * depth,
+                            resume_latest=False,
+                            checkpoint_interval=CHECKPOINT_INTERVAL,
+                            is_batchnorm=(architecture == "batchnorm_vae"),
+                            atom_selection=atom_selection,
+                            weight_model=WEIGHT_MODEL,
+                        )
+                        params.update(depth_specific_keys(architecture, depth))
 
-        model_names = [f"CR_small_{model_base}"]
-        assert len(dcd_fns) == len(model_names)
+                        json_fn = os.path.join(
+                            out_dir,
+                            f"{model_name}_{latent_dim:04d}_{test_slice:02d}.json",
+                        )
+                        with open(json_fn, "w") as f:
+                            json.dump(params, f, indent=4)
+                        n_written += 1
 
-        json_dir = os.path.join(os.getcwd(), "json_inputs", model_base)
-        os.makedirs(json_dir, exist_ok=True)
-
-        for dcd_fn, top_fn, model_name in zip(dcd_fns, top_fns, model_names):
-            c = md.load(dcd_fn, top=top_fn)
-            c = c.atom_slice(c.topology.select(atom_selection))
-            latent_dims = powers_of_two_up_to(c.n_atoms) + [c.n_atoms]
-            lrs = [1e-3] * len(latent_dims)
-
-            os.makedirs(os.path.join(json_dir, model_name), exist_ok=True)
-
-            for latent_dim, lr in zip(latent_dims, lrs):
-                for test_slice in [1, 2, 3, 4, 5]:
-                    json_fn = os.path.join(
-                        json_dir, model_name,
-                        f"{model_name}_{latent_dim:04d}_{test_slice:02d}.json",
-                    )
-                    json_params = dict(
-                        fname_dcd=dcd_fn,
-                        fname_topology=top_fn,
-                        save_dir=os.getcwd(),
-                        max_epoch=10001,
-                        latent_dim=latent_dim,
-                        test_slice=test_slice,
-                        data_slice_start=0,
-                        data_slice_end=500,
-                        model_name=model_name,
-                        batch_size=100,
-                        learning_rate=lr,
-                        dropout_rates=[0.0, 0.0, 0.0],
-                        resume_latest=False,
-                        checkpoint_interval=200,
-                        is_batchnorm=False,
-                        atom_selection=atom_selection,
-                        weight_model=weight_model,
-                    )
-                    with open(json_fn, "w") as f:
-                        json.dump(json_params, f, indent=4)
-                    print(f"Wrote {json_fn}")
+    print(f"\nWrote {n_written} config(s) under json_inputs/{SWEEP_TAG}/")
 
 
 if __name__ == "__main__":
