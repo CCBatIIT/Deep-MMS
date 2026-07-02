@@ -206,6 +206,7 @@ def find_logvar_heads(params):
     heads = []
 
     def walk(node, trail):
+        """Recurse the pytree, recording any logvar head found at ``trail``."""
         if not isinstance(node, dict):
             return
         key = trail[-1] if trail else ""

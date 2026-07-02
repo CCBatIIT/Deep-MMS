@@ -1,4 +1,41 @@
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
 __pycache__/
 *.pyc
 *.pyo
 .ipynb_checkpoints/
+.pytest_cache/
+# Editable-install / build artifacts
+*.egg-info/
+build/
+dist/
+
+# ---------------------------------------------------------------------------
+# Deep-MMS run outputs & bulk data (kept on disk, never committed)
+# ---------------------------------------------------------------------------
+# Prior experiment outputs relocated during the 2026 cleanup (nothing deleted).
+results_archive/
+# Canonical output directory for new profiling sweeps (see generate_configs.py).
+runs/
+# Training artifacts wherever they land.
+**/checkpoint_managed/
+**/*_latents/
+*.nc
+
+# Bulk trajectory / topology data.  Already-tracked files under Simulation/
+# stay tracked (git does not un-track them); this only hides new untracked
+# additions such as the multi-GB trajectories.  Use `git add -f` to track a
+# new data file intentionally.
+Simulation/
+
+# Generated sweep configs are reproducible via scripts/generate_configs.py and
+# are not committed (the currently tracked example configs remain tracked).
+json_inputs/
+
+# ---------------------------------------------------------------------------
+# Loose analysis / scratch artifacts
+# ---------------------------------------------------------------------------
+*.npy
+*.tar.gz
+Untitled*.ipynb
