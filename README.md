@@ -24,6 +24,13 @@ Or from the provided environment file:
 conda env create --file jetstream2_env.yml
 ```
 
+Then install the package to get the `deep-mms` command (use `--no-deps` so the
+CUDA-specific jax build in your environment is left untouched):
+
+```bash
+pip install -e . --no-deps
+```
+
 Verify GPU detection in Python:
 ```python
 import jax
@@ -48,6 +55,9 @@ Classical force-field MD simulations produce trajectories that are expensive to 
 
 ```
 deepmms/                         # installable Python package
+├── cli.py                       # `deep-mms` command: train one model from CLI args
+├── dispatch.py                  # architecture id -> training harness (build_harness)
+├── config.py                    # assemble a config dict from CLI/sweep knobs
 ├── utils.py                     # printf timestamp logger; JAX x64 config
 ├── data.py                      # trajectory loading, train/test split, batching, mass weights
 ├── models/
@@ -76,7 +86,9 @@ deepmms/                         # installable Python package
     └── plotting.py              # violin plots, difference plots, figure log CSVs
 
 scripts/                         # CLI entry points (all take a JSON config file)
-├── generate_configs.py          # write a sweep of JSON configs (edit dcd_fns/top_fns inside)
+├── generate_configs.py          # write the profiling grid (arch × latent × depth × ensemble)
+├── train_dispatch.py            # train any cell: dispatches on the config's "architecture" key
+├── run_sweep.sbatch             # SLURM array runner over the generated configs
 ├── train.py                     # train BatchNorm_VAE with Adam
 ├── train_beta_vae.py            # train BetaVAE with Adam
 ├── train_transformer.py         # train TransformerVAE with Adam
@@ -93,10 +105,14 @@ scripts/                         # CLI entry points (all take a JSON config file
 ├── compute_violin_data.py       # compute per-frame VAE vs PCA RMSD arrays (.npy)
 ├── backup_numpy.py              # copy .npy files to versioned numpy_backups/
 ├── clustering_metrics.py        # evaluate clustering metrics on latent representations
-└── perturbation.py              # generate latent-sweep DCD trajectories
-
-pyscripts/                       # legacy code preserved for reference
+├── perturbation.py              # generate latent-sweep DCD trajectories
+└── report_sigma.py              # audit reparameterization sigma (posterior collapse) from checkpoints
 ```
+
+Training outputs and bulk trajectory data are git-ignored (`runs/`,
+`results_archive/`, `Simulation/`, `**/checkpoint_managed/`, `*.nc`, …); see
+`.gitignore`.  Prior experiment outputs were relocated to `results_archive/`
+during the 2026 cleanup — nothing was deleted.
 
 ---
 
@@ -164,28 +180,65 @@ JSON extras:
 
 ## Quickstart
 
-### 1. Generate JSON configs
+### 0. Train one model from the command line
 
-Open `scripts/generate_configs.py` and set `dcd_fns` and `top_fns` in the **CONFIG** section to point to your trajectory and topology files, then:
+For an ad-hoc run, the `deep-mms` command builds the config from its arguments —
+no JSON file needed.  Give the trajectory and topology, then any number of
+`key=value` overrides:
+
+```bash
+deep-mms Simulation/oxycodone.dcd Simulation/oxycodone.prmtop \
+    architecture=batchnorm_vae latents=8 depth=4 batchnorm=True
+
+deep-mms Simulation/1crn_split2.dcd Simulation/1crn_H.prmtop \
+    architecture=transformer latents=16 depth=6 epochs=5000
+
+deep-mms --list-architectures                 # show the 13 architectures
+deep-mms <dcd> <top> latents=8 depth=4 --dry-run   # print the config, don't train
+```
+
+Common keys (aliases in parentheses): `architecture`, `latents` (`latent_dim`),
+`depth` (→ number of hidden layers), `batchnorm` (`is_batchnorm`), `epochs`
+(`max_epoch`), `lr` (`learning_rate`), `batch_size`, `test_slice`,
+`weight_model`, `save_dir`, `model_name`.  Any other config key may be passed the
+same way.  Output goes to `save_dir/<model_name>/<latent>_latents/rpt_<slice>/`
+(`save_dir` defaults to `runs/`).
+
+### 1. Generate the profiling-sweep configs
+
+`scripts/generate_configs.py` writes one JSON per cell of the grid
+**architecture × latent {1,2,4,8,16,32} × depth {2,4,6,8,10} × ensemble**
+(latents are clamped per system to ≤ heavy-atom count).  Edit the `CONFIG`
+section at the top (`ENSEMBLES`, `ARCHITECTURES`, `LATENTS`, `DEPTHS`, `REPEATS`)
+to change any axis, then:
 
 ```bash
 cd /path/to/Deep-MMS
 python scripts/generate_configs.py
 ```
 
-This writes one JSON per (latent dimension × test-set repeat) combination under `json_inputs/<model_base>/`.  The trajectory paths (`dcd_fns`) and topology paths (`top_fns`) inside the script are user-configurable — no other files need to change.
+Configs are written under `json_inputs/profiling_2026/<ensemble>_<arch>_D<depth>/`
+and training output goes to `runs/` (both git-ignored).  Network depth is set by
+`len(dropout_rates)` for every architecture except `se3`/`equivariant`/`flow`,
+whose depth keys (`n_mp_layers`/`n_interactions`/`n_coupling_layers`) are emitted
+automatically.
 
 ### 2. Train a model
 
+Every generated config carries an `"architecture"` key, so a single dispatcher
+trains any cell:
+
 ```bash
-# Standard MLP VAE (Adam)
-python scripts/train.py json_inputs/X013-2/CR_X013-2/CR_X013-2_0004_01.json
+python scripts/train_dispatch.py json_inputs/profiling_2026/CR_batchnorm_vae_D04/CR_batchnorm_vae_D04_0008_01.json
+```
 
-# Transformer VAE
-python scripts/train_transformer.py json_inputs/X013-2/CR_X013-2/CR_X013-2_0004_01.json
+The per-architecture scripts (`scripts/train.py`, `train_transformer.py`,
+`train_neat.py`, …) remain available if you prefer to pin the model explicitly.
+On an HPC cluster, submit the whole sweep as a SLURM array:
 
-# NEAT (OpenES + automatic topology growth)
-python scripts/train_neat.py json_inputs/X013-2/CR_X013-2/CR_X013-2_0004_01.json
+```bash
+find json_inputs/profiling_2026 -name '*.json' | sort > sweep_configs.txt
+sbatch --array=1-$(wc -l < sweep_configs.txt)%50 scripts/run_sweep.sbatch sweep_configs.txt
 ```
 
 All scripts must be run from the project root (the directory containing `deepmms/`).
@@ -290,13 +343,13 @@ For each JSON config, training produces:
 
 ## Molecular systems
 
-| System | Label | Heavy atoms | Length |
+| System | Label | Heavy atoms | Data (dcd / topology) |
 |---|---|---|---|
-| Oxycodone | OX | 23 | — |
-| Deca-alanine | DA | 50 | — |
-| Crambin | CR | 327 | — |
-| BPTI | BR | 1093 | 100 ns |
-| HIV-1 Protease | HIV1p | 1599 | 1 µs |
+| Oxycodone | OX | 23 | `Simulation/oxycodone.dcd` / `oxycodone.prmtop` |
+| Deca-alanine | DA | 50 | `Simulation/decaalanine_1us_split3.dcd` / `ala_deca_peptide.prmtop` |
+| Crambin | CR | 327 | `Simulation/1crn_split2.dcd` / `1crn_H.prmtop` |
+| Bromodomain (3mxf) | BRD | 1093 | `Simulation/3mxf_protein_ligand_only.dcd` / `.pdb` |
+| HIV-1 Protease | HIV1p | 1599 | `Simulation/HIV1p_protein_only.dcd` / `.pdb` |
 
 ---
 

@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deep-mms"
+version = "0.1.0"
+description = "Deep Molecular Mechanics Surrogate: VAE compression of molecular-dynamics ensembles."
+readme = "README.md"
+requires-python = ">=3.10"
+# Runtime dependencies are provided by the conda environment (jetstream2_env.yml):
+#   jax, jaxlib, flax, optax, orbax-checkpoint, mdtraj, netCDF4,
+#   scikit-learn, numpy, matplotlib
+# They are intentionally NOT declared here so that `pip install -e .` installs
+# only the console script and does not disturb the CUDA-specific jax build.
+dependencies = []
+
+[project.scripts]
+deep-mms = "deepmms.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["deepmms*"]
